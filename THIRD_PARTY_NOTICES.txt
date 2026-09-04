@@ -1,0 +1,15 @@
+Factorio-derived graphics
+=========================
+
+The following graphics are direct edits or recolours of Factorio base-game assets:
+
+- graphics/entity/batch-request-combinator/batch-request-combinator.png
+- graphics/icons/batch-request-combinator.png
+- graphics/entity/logistic-chest/requester-chest-exact-electric-blue.png
+- graphics/icons/requester-chest-exact-electric-blue.png
+
+Factorio and its original and derived art assets are copyrighted by Wube Software Ltd. These files are distributed only as part of this Factorio mod under the Factorio Terms of Service:
+
+https://www.factorio.com/terms-of-service
+
+These graphics are not covered by the MIT license in LICENSE.

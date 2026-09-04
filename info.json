@@ -1,0 +1,13 @@
+{
+  "name": "batch-request-combinator",
+  "version": "0.1.1",
+  "title": "Batch Request Combinator",
+  "author": "Nova.Kin",
+  "description": "Experimental circuit-controlled batching for robot-fed loading stations. Helps prevent leftover items in requester chests and inserters between loads.",
+  "factorio_version": "2.1",
+  "dependencies": [
+    "base >= 2.1.0",
+    "? quality >= 2.1.0",
+    "! batch-combinator-requester"
+  ]
+}

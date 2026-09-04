@@ -1,0 +1,65 @@
+---------------------------------------------------------------------------------------------------
+Version: 0.1.1
+Date: 2026-09-04
+  Features:
+    - Added Parallel support for multiple compatible loading inserters pulling from the same requester chest, with independent temporary overrides and restoration.
+    - Added the integrated Batch-Combinator Requester with a startup-configurable 48-to-5,000-slot inventory, a 5,000-slot default, fixed capacity across qualities, Factorio-native exact delivery, and separate electric-blue graphics.
+  Changes:
+    - Single now always requires exactly one connected loading inserter per managed requester chest.
+    - No-tail now rejects nonempty monitored inserter hands before request creation while continuing to leave inserter configuration entirely player-owned.
+    - Compatible non-exact requesters retain exact min/max requests until the main inventory is exact, logistic trash is empty, and native delivery and pickup activity is clear. Robot cargo-size surplus is normalized by Factorio instead of becoming a batch error.
+  Bugfixes:
+    - Kept normalized surplus out of staged, READY, and tail-plan quantities in No-tail, Single, and Parallel.
+    - Made DRAINING stall progress depend on decreasing remaining contents instead of fluctuating targeted-activity counts, and limited destination checks to logistic storage.
+    - Removed the inherited vanilla decider comparison symbol from the placed combinator so its mechanical batch counter remains visible.
+  Optimizations:
+    - Restored the empty, unfiltered large-requester capacity fast path and stopped No-tail from scanning inserters on READY polls until the source is drained.
+    - Kept all staging checks on native requester point, inventory, delivery, and pickup APIs without enumerating robots.
+  Graphics:
+    - Added static electric-blue mechanical counter-drum combinator sprites, inventory icons, and requester-chest animation, with no activity-light overlay.
+  Compatibility:
+    - Bumped storage schema to 5 and declared a conflict with the earlier standalone batch-combinator-requester mod.
+    - Fixed the integrated requester icon path and kept the combinator and requester inventory icons independent and unbadged.
+  Gui:
+    - Added bounded DRAINING wait diagnostics for missing logistic coverage, missing or unavailable logistic robots, unavailable storage, and ongoing logistic movement.
+    - Unified state, error, warning, wait, and recovery text in one top card; gave every blocking error a plain-language title and exact corrective detail; kept numeric codes and full inserter requirements in Technical details; and renamed the ERROR action to Reset batch.
+---------------------------------------------------------------------------------------------------
+Version: 0.1.0
+Date: 2026-09-02
+  Major Features:
+    - Added the Batch Request Combinator, which captures one circuit item request and stages its exact item-and-quality quantities across compatible requester chests before enabling loading.
+  Features:
+    - Added exclusive READY and COMPLETE circuit signals for loading control and managed-source completion.
+    - Added Follow input and Snapshot input handling.
+    - Added No tail flush, Single tail inserter, and Parallel tail inserters.
+    - Added Abort batch and bounded automatic-tail retry recovery.
+    - Added an explicit ARMED-and-zero maintenance action that previews and drains connected requester chests through temporary Trash unrequested control with verified restoration.
+    - Added an optional per-combinator cleanup after Follow input returns to zero during REQUESTING, SETTLING, or READY; it drains only that batch's exact managed requester chests and is disabled by default.
+  Gui:
+    - Added the compact, modeless Factorio-native operating console with always-visible status and progress plus on-demand configuration, batch details, maintenance, diagnostics, errors, and recovery actions.
+    - Added English and French localization with hover explanations for input and tail modes.
+    - Added drain confirmation, amber progress, remaining-item reporting, and Stop draining controls.
+    - Added an ARMED-only automatic-cleanup checkbox with a robot/storage consequence tooltip and a read-only active-batch value.
+  Graphics:
+    - Added the polished Batch Request Combinator thumbnail for the Mod Portal and in-game mod browser.
+  Compatibility:
+    - Added capability-based requester detection without hardcoded train-system, merged-chest, or requester prototype names.
+    - Added current-version blueprint, copy, clone, and fast-replacement preservation for input sign, input handling, tail handling, and automatic-cleanup settings; older complete tags preserve their modes with cleanup disabled.
+  Optimizations:
+    - Added configurable staggered polling from 1 to 60 ticks with a default interval of 12, cached active-batch observations and item keys, direct recurring inserter-setting comparisons, bounded Single-tail planning, and no recurring GUI work while the panel is closed.
+    - Reused requester points, inventory observations, validated hand results, successful cleanup state, and empty scheduler buckets while keeping requester-drain work off the idle path.
+    - Kept automatic cleanup off the normal polling path; it performs no discovery, inventory scan, or requester write until an eligible interruption and then reuses the staggered DRAINING poll.
+    - Kept Single-tail planning bounded as merged requester capacity grows and removed avoidable empty-map, inventory-snapshot, connector-lookup, and unchanged-error rendering work from recurring polls.
+  Bugfixes:
+    - Kept selected read-only configuration radios visibly checked without redundant Selected labels and reduced Start draining to the standard native green-button size.
+    - Kept retained ERROR and ABORTED progress in the correct staged or loaded phase after loading had begun.
+    - Removed owned requester sections before READY so loading cannot trigger replacement deliveries.
+    - Prevented repeated chat notifications while the same combinator error remains unresolved.
+    - Added fail-closed cleanup and recovery for replaced entities, changed wiring or settings, interrupted request transactions, and temporary stack overrides.
+    - Added debug-mode automatic-inserter diagnostics with the exact failed rule, entity identity, unit number, and position.
+    - Restored interrupted requester-drain leases before normal first-tick processing after load or configuration change and retained claims through every failed cleanup path.
+    - Prevented conflicting saved requester-drain cleanup records from selecting or writing an unproven Trash-unrequested value.
+    - Counted logistic-container trash slots during draining so cleanup cannot complete while uncollected items remain in the requester trash inventory.
+  Info:
+    - COMPLETE reports only that managed requester chests and monitored inserter hands are empty; destination or wagon capacity is not checked.
+    - Automatic tail handling requires exactly one eligible READY-controlled inserter per managed requester chest.
