@@ -7,7 +7,6 @@
   "factorio_version": "2.1",
   "dependencies": [
     "base >= 2.1.0",
-    "? quality >= 2.1.0",
-    "! batch-combinator-requester"
+    "? quality >= 2.1.0"
   ]
 }
