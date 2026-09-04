@@ -4,6 +4,10 @@ Batch Request Combinator captures quality-aware item signals once, stages one ex
 
 The included Batch-Combinator Requester defaults to 5,000 inventory slots and uses Factorio's native exact logistic mode. Its capacity is configurable from 48 to 5,000 as a startup mod setting and does not scale with chest quality. Compatible ordinary non-exact requesters remain supported: robots may briefly overdeliver, but the owned request stays active with equal minimum and maximum values while Factorio returns the surplus through the chest's logistic trash inventory. Loading never starts until the main inventory equals its allocation, the trash inventory is empty, and both native delivery and pickup activity are clear.
 
+<p align="center">
+  <img src="assets/batch-request-combinator-four-directions.png" alt="Batch Request Combinator shown in all four directions" width="624">
+</p>
+
 ## Why use it
 
 Factorio can set requester-chest requests from circuit signals, but this creates a standing inventory target rather than a one-shot exact transfer. While the signal remains active, items removed from the chest are requested again; after it is cleared, robots already on their way may still arrive; and robots can deliver more than requested. A vanilla circuit build can emulate a batch with memory and chest-content calculations. This mod packages that behavior for several chests, item qualities, deliveries in flight, and inserter hands.
