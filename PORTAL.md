@@ -10,6 +10,8 @@ Turn an item signal into one exact robot-delivered batch: requests stop before l
 
 > **Experimental:** This mod is still being tested and refined. Back up important saves and try it in a safe setup before relying on it in an important factory.
 
+Version 0.1.2 was tested in Factorio 2.1.17 in English at 1920×1080 and 100% UI scale. Broader save/reload, robot overdelivery, multiplayer, other languages and UI scales, more factory layouts, and large-factory performance testing is still in progress.
+
 Send an item signal to the combinator and logistic robots prepare one exact batch across its requester chests. The temporary requests are removed before `READY` turns on, so loading can empty the chests without asking robots to refill them. `COMPLETE` turns on when the managed chests and inserter hands are empty.
 
 Built for robot-fed train stations, it also works with other circuit-controlled loading setups. Single and Parallel modes can finish supported partial inserter hands before the next batch. No train-control mod is required.
