@@ -8,6 +8,7 @@ Constants.BLUEPRINT_SCHEMA_VERSION = 3
 
 Constants.DRAIN_STALL_TICKS = 300
 Constants.DRAIN_DIAGNOSTIC_INTERVAL_TICKS = 120
+Constants.DEFERRED_RETRY_INTERVAL_TICKS = 60
 
 Constants.DRAIN_WAIT_REASON = {
   NETWORK = "network",
@@ -104,6 +105,9 @@ Constants.ERROR = {
   DRAIN_RESTORE_FAILED = 24,
   DRAIN_INPUT_ACTIVE = 25,
   DRAIN_SCOPE_CHANGED = 26,
+  INSERTER_SETUP_FAILED = 27,
+  INSERTER_SETUP_SCOPE_CHANGED = 28,
+  INSERTER_SETUP_INPUT_ACTIVE = 29,
 }
 
 Constants.ERROR_LOCALE = {
@@ -133,6 +137,9 @@ Constants.ERROR_LOCALE = {
   [Constants.ERROR.DRAIN_RESTORE_FAILED] = "batch-request-combinator-error.drain-restore-failed",
   [Constants.ERROR.DRAIN_INPUT_ACTIVE] = "batch-request-combinator-error.drain-input-active",
   [Constants.ERROR.DRAIN_SCOPE_CHANGED] = "batch-request-combinator-error.drain-scope-changed",
+  [Constants.ERROR.INSERTER_SETUP_FAILED] = "batch-request-combinator-error.inserter-setup-failed",
+  [Constants.ERROR.INSERTER_SETUP_SCOPE_CHANGED] = "batch-request-combinator-error.inserter-setup-scope-changed",
+  [Constants.ERROR.INSERTER_SETUP_INPUT_ACTIVE] = "batch-request-combinator-error.inserter-setup-input-active",
 }
 
 Constants.GUI = {
@@ -208,6 +215,12 @@ Constants.GUI = {
   DRAIN_STOP = "batch_request_combinator_drain_stop",
   ACTION_BAR = "batch_request_combinator_action_bar",
   ACTIONS = "batch_request_combinator_actions",
+  INSERTER_SETUP = "batch_request_combinator_inserter_setup",
+  INSERTER_SETUP_ERROR = "batch_request_combinator_inserter_setup_error",
+  INSERTER_SETUP_DIALOG = "batch_request_combinator_inserter_setup_dialog",
+  INSERTER_SETUP_DIALOG_CLOSE = "batch_request_combinator_inserter_setup_dialog_close",
+  INSERTER_SETUP_CONFIRM = "batch_request_combinator_inserter_setup_confirm",
+  INSERTER_SETUP_CANCEL = "batch_request_combinator_inserter_setup_cancel",
 }
 
 Constants.BLUEPRINT_SIGN_MODE_TAG = "batch-request-combinator-sign-mode"

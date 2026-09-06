@@ -1,6 +1,6 @@
 {
   "name": "batch-request-combinator",
-  "version": "0.1.1",
+  "version": "0.1.2",
   "title": "Batch Request Combinator",
   "author": "Nova.Kin",
   "description": "Experimental circuit-controlled batching for robot-fed loading stations. Helps prevent leftover items in requester chests and inserters between loads.",

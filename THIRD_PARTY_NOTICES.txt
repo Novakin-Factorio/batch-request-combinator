@@ -7,6 +7,7 @@ The following graphics are direct edits or recolours of Factorio base-game asset
 - graphics/icons/batch-request-combinator.png
 - graphics/entity/logistic-chest/requester-chest-exact-electric-blue.png
 - graphics/icons/requester-chest-exact-electric-blue.png
+- assets/batch-request-combinator-four-directions.png
 
 Factorio and its original and derived art assets are copyrighted by Wube Software Ltd. These files are distributed only as part of this Factorio mod under the Factorio Terms of Service:
 

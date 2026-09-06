@@ -2,6 +2,7 @@ local Constants = require("runtime.constants")
 local BatchCoordinator = require("runtime.batch_coordinator")
 local CircuitInput = require("runtime.circuit_input")
 local Drain = require("runtime.drain")
+local InserterController = require("runtime.inserter_controller")
 local OutputStatus = require("runtime.output_status")
 local Registry = require("runtime.registry")
 local Util = require("runtime.util")
@@ -504,6 +505,28 @@ function StateMachine.preview_drain(instance)
   local snapshot = CircuitInput.read_active(instance.entity, instance.sign_mode, nil)
   if snapshot.has_input then return false, Constants.ERROR.DRAIN_INPUT_ACTIVE end
   return Drain.preview(instance)
+end
+
+local function inserter_setup_available(instance)
+  if not instance or instance.state ~= Constants.STATE.ARMED
+    or not instance.entity or not instance.entity.valid then
+    return false, Constants.ERROR.INSERTER_SETUP_INPUT_ACTIVE
+  end
+  local snapshot = CircuitInput.read_active(instance.entity, instance.sign_mode, nil)
+  if snapshot.has_input then return false, Constants.ERROR.INSERTER_SETUP_INPUT_ACTIVE end
+  return true
+end
+
+function StateMachine.preview_inserter_setup(instance)
+  local available, error_code = inserter_setup_available(instance)
+  if not available then return false, error_code end
+  return InserterController.preview_setup(instance)
+end
+
+function StateMachine.configure_inserters(instance, expected_scope_signature)
+  local available, error_code = inserter_setup_available(instance)
+  if not available then return false, error_code end
+  return InserterController.configure_setup(instance, expected_scope_signature)
 end
 
 function StateMachine.start_drain(instance, expected_scope_signature)

@@ -8,6 +8,8 @@ local Registry = require("runtime.registry")
 local StateMachine = require("runtime.state_machine")
 
 local Scheduler = {}
+local next_cleanup_retry_tick = 0
+local next_drain_retry_tick = 0
 
 function Scheduler.on_tick(event, on_invalid, after_process)
   local root = Registry.root()
@@ -24,18 +26,24 @@ function Scheduler.on_tick(event, on_invalid, after_process)
       log("[Batch Request Combinator] temporary override recovery failed: " .. tostring(override_failures))
     end
   end
-  if #root.cleanup_order > 0 then
-    local cleanup_ok, cleanup_failure = pcall(BatchCoordinator.retry_one_tombstone)
-    if not cleanup_ok and root.debug.last_cleanup_error ~= tostring(cleanup_failure) then
-      root.debug.last_cleanup_error = tostring(cleanup_failure)
-      log("[Batch Request Combinator] deferred cleanup failed: " .. tostring(cleanup_failure))
+  if #root.cleanup_order > 0 and event.tick >= next_cleanup_retry_tick then
+    local cleanup_ok, cleanup_result = pcall(BatchCoordinator.retry_one_tombstone)
+    if not cleanup_ok or not cleanup_result then
+      next_cleanup_retry_tick = event.tick + Constants.DEFERRED_RETRY_INTERVAL_TICKS
+    end
+    if not cleanup_ok and root.debug.last_cleanup_error ~= tostring(cleanup_result) then
+      root.debug.last_cleanup_error = tostring(cleanup_result)
+      log("[Batch Request Combinator] deferred cleanup failed: " .. tostring(cleanup_result))
     end
   end
-  if #root.drain_order > 0 then
-    local drain_ok, drain_failure = pcall(Drain.retry_one_tombstone)
-    if not drain_ok and root.debug.last_drain_cleanup_error ~= tostring(drain_failure) then
-      root.debug.last_drain_cleanup_error = tostring(drain_failure)
-      log("[Batch Request Combinator] deferred drain restoration failed: " .. tostring(drain_failure))
+  if #root.drain_order > 0 and event.tick >= next_drain_retry_tick then
+    local drain_ok, drain_result = pcall(Drain.retry_one_tombstone)
+    if not drain_ok or not drain_result then
+      next_drain_retry_tick = event.tick + Constants.DEFERRED_RETRY_INTERVAL_TICKS
+    end
+    if not drain_ok and root.debug.last_drain_cleanup_error ~= tostring(drain_result) then
+      root.debug.last_drain_cleanup_error = tostring(drain_result)
+      log("[Batch Request Combinator] deferred drain restoration failed: " .. tostring(drain_result))
     end
   end
   local bucket = Registry.bucket_for_tick(event.tick)

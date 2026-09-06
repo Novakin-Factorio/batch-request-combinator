@@ -516,7 +516,7 @@ end
 
 function Drain.retry_one_tombstone()
   local root = Registry.root()
-  if #root.drain_order == 0 then return end
+  if #root.drain_order == 0 then return true end
   local index = math.min(root.drain_cursor or 1, #root.drain_order)
   local key = root.drain_order[index]
   local tombstone = root.drain_tombstones[key]
@@ -524,11 +524,11 @@ function Drain.retry_one_tombstone()
     table.remove(root.drain_order, index)
     root.drain_cursor = #root.drain_order == 0 and 1
       or math.min(index, #root.drain_order)
-    return
+    return true
   end
   if root.chest_owners[tombstone.unit_number] ~= tombstone.owner then
     root.drain_cursor = (index % #root.drain_order) + 1
-    return
+    return false
   end
   local entity = tombstone.entity
   local restored = not entity or not entity.valid
@@ -548,8 +548,10 @@ function Drain.retry_one_tombstone()
   end
   if restored then
     remove_tombstone(root, index, key, tombstone)
+    return true
   else
     root.drain_cursor = (index % #root.drain_order) + 1
+    return false
   end
 end
 

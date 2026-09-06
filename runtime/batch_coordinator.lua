@@ -198,7 +198,7 @@ function BatchCoordinator.detach_failed_cleanup(instance)
 end
 
 function BatchCoordinator.retry_one_tombstone()
-  Requests.retry_one_tombstone(function(owner, target_unit_number)
+  return Requests.retry_one_tombstone(function(owner, target_unit_number)
     InserterController.release_resolved_tombstones_for_target(owner, target_unit_number)
   end)
 end

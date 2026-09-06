@@ -9,10 +9,11 @@ local Gui = {}
 local element_cache_by_player = {}
 local inspector_by_player = {}
 local drain_preview_by_player = {}
+local inserter_setup_preview_by_player = {}
 local diagnostics_by_player = {}
 
 local GUI_SCHEMA_TAG = "batch-request-combinator-gui-version"
-local GUI_SCHEMA_VERSION = 14
+local GUI_SCHEMA_VERSION = 16
 
 local DRAIN_WAIT_CAPTIONS = {
   [Constants.DRAIN_WAIT_REASON.NETWORK] = "condition-drain-waiting-network",
@@ -48,6 +49,9 @@ local ERROR_TITLE_CAPTIONS = {
   [Constants.ERROR.DRAIN_RESTORE_FAILED] = "error-title-drain-restore-failed",
   [Constants.ERROR.DRAIN_INPUT_ACTIVE] = "error-title-drain-input-active",
   [Constants.ERROR.DRAIN_SCOPE_CHANGED] = "error-title-drain-scope-changed",
+  [Constants.ERROR.INSERTER_SETUP_FAILED] = "error-title-inserter-setup-failed",
+  [Constants.ERROR.INSERTER_SETUP_SCOPE_CHANGED] = "error-title-inserter-setup-scope-changed",
+  [Constants.ERROR.INSERTER_SETUP_INPUT_ACTIVE] = "error-title-inserter-setup-input-active",
 }
 local ERROR_TECHNICAL_CAPTIONS = {
   [Constants.ERROR.INSERTER_CONFIGURATION] = "technical-inserter-requirements",
@@ -172,6 +176,10 @@ local function frame_for(player)
   return player.gui.screen[Constants.GUI.FRAME]
 end
 
+local function inserter_setup_dialog_for(player)
+  return player.gui.screen[Constants.GUI.INSERTER_SETUP_DIALOG]
+end
+
 local function index_elements(element, elements)
   if not element or not element.valid then return end
   if element.name and element.name ~= "" then elements[element.name] = element end
@@ -187,6 +195,28 @@ local function elements_for(player, frame)
   index_elements(frame, elements)
   element_cache_by_player[player.index] = {frame = frame, elements = elements}
   return elements
+end
+
+local function hide_inserter_setup_error(player)
+  local frame = frame_for(player)
+  if not frame or not frame.valid then return end
+  local error_label = elements_for(player, frame)[Constants.GUI.INSERTER_SETUP_ERROR]
+  if not error_label or not error_label.valid then return end
+  error_label.caption = ""
+  error_label.visible = false
+end
+
+local function destroy_inserter_setup_dialog(player)
+  local dialog = inserter_setup_dialog_for(player)
+  if dialog and dialog.valid then dialog.destroy() end
+  hide_inserter_setup_error(player)
+  inserter_setup_preview_by_player[player.index] = nil
+end
+
+local function clear_inserter_setup(player)
+  local dialog = inserter_setup_dialog_for(player)
+  if dialog and dialog.valid and player.opened == dialog then player.opened = nil end
+  destroy_inserter_setup_dialog(player)
 end
 
 local function clear_player_registration(player_index)
@@ -298,11 +328,13 @@ end
 local function build(player, instance, preserve_presentation)
   local existing = frame_for(player)
   local previous_location = existing and existing.valid and existing.location or nil
+  clear_inserter_setup(player)
   if existing then existing.destroy() end
   element_cache_by_player[player.index] = nil
   if not preserve_presentation then
     inspector_by_player[player.index] = nil
     drain_preview_by_player[player.index] = nil
+    inserter_setup_preview_by_player[player.index] = nil
     diagnostics_by_player[player.index] = nil
   end
   local root = Registry.root()
@@ -485,6 +517,34 @@ local function build(player, instance, preserve_presentation)
     state = false,
   }
   add_info_sprite(auto_cleanup_row, {"batch-request-combinator.gui-auto-cleanup-after-interrupt-tooltip"})
+  local inserter_setup = configuration.add{type = "flow", direction = "vertical"}
+  inserter_setup.style.horizontally_stretchable = true
+  inserter_setup.style.top_margin = 12
+  local setup_heading = inserter_setup.add{
+    type = "label",
+    caption = {"batch-request-combinator.gui-inserter-setup-heading"},
+  }
+  setup_heading.style.font = "default-semibold"
+  local setup_description = inserter_setup.add{
+    type = "label",
+    caption = {"batch-request-combinator.gui-inserter-setup-description"},
+  }
+  setup_description.style.single_line = false
+  setup_description.style.horizontally_stretchable = true
+  inserter_setup.add{
+    type = "button",
+    name = Constants.GUI.INSERTER_SETUP,
+    caption = {"batch-request-combinator.gui-inserter-setup"},
+  }
+  local setup_error = inserter_setup.add{
+    type = "label",
+    name = Constants.GUI.INSERTER_SETUP_ERROR,
+    caption = "",
+  }
+  setup_error.style.single_line = false
+  setup_error.style.horizontally_stretchable = true
+  setup_error.style.top_margin = 6
+  setup_error.visible = false
   local locked = configuration.add{
     type = "label",
     name = Constants.GUI.CONFIGURATION_LOCKED,
@@ -889,7 +949,7 @@ local PANELS = {
   [INSPECTOR.TECHNICAL] = Constants.GUI.TECHNICAL_PANEL,
 }
 
-local function update_configuration(elements, instance)
+local function update_configuration(elements, instance, player)
   local editable = instance.state == Constants.STATE.ARMED
   local sign_mode = instance.sign_mode or Constants.SIGN_MODE.ANY
   local input_mode = editable and instance.input_mode
@@ -932,6 +992,11 @@ local function update_configuration(elements, instance)
   auto_cleanup.state = instance.auto_cleanup_after_interrupt == true
   auto_cleanup.enabled = editable or auto_cleanup.state
   auto_cleanup.ignored_by_interaction = not editable
+  local setup_preview = editable and inserter_setup_preview_by_player[player.index] or nil
+  elements[Constants.GUI.INSERTER_SETUP].enabled = editable
+  local setup_error = elements[Constants.GUI.INSERTER_SETUP_ERROR]
+  setup_error.visible = setup_preview ~= nil and setup_preview.error_caption ~= nil
+  if setup_error.visible then setup_error.caption = setup_preview.error_caption end
   elements[Constants.GUI.CONFIGURATION_LOCKED].visible = not editable
 end
 
@@ -1077,7 +1142,7 @@ local function update_inspector(player, frame, elements, instance, layout)
     "batch-request-combinator." .. INSPECTOR_CAPTION[selected],
   }
   if selected == INSPECTOR.CONFIGURATION then
-    update_configuration(elements, instance)
+    update_configuration(elements, instance, player)
   elseif selected == INSPECTOR.BATCH then
     update_batch_details(elements, frame, instance)
   elseif selected == INSPECTOR.MAINTENANCE then
@@ -1191,7 +1256,10 @@ function Gui.refresh_player(player, instance)
   end
   frame.tags = tags
 
-  if instance.state ~= Constants.STATE.ARMED then drain_preview_by_player[player.index] = nil end
+  if instance.state ~= Constants.STATE.ARMED then
+    drain_preview_by_player[player.index] = nil
+    if inserter_setup_preview_by_player[player.index] then clear_inserter_setup(player) end
+  end
   update_inspector(player, frame, elements, instance, layout)
 
   local retry_relevant = instance.state == Constants.STATE.READY
@@ -1263,12 +1331,14 @@ end
 function Gui.close_player(player_index)
   local player = game.get_player(player_index)
   if player then
+    clear_inserter_setup(player)
     local frame = frame_for(player)
     if frame and frame.valid then frame.destroy() end
   end
   element_cache_by_player[player_index] = nil
   inspector_by_player[player_index] = nil
   drain_preview_by_player[player_index] = nil
+  inserter_setup_preview_by_player[player_index] = nil
   diagnostics_by_player[player_index] = nil
   clear_player_registration(player_index)
 end
@@ -1281,7 +1351,11 @@ function Gui.close_instance(instance)
 end
 
 function Gui.on_closed(event)
-  if event.element and event.element.valid and event.element.name == Constants.GUI.FRAME then
+  if not event.element or not event.element.valid then return end
+  if event.element.name == Constants.GUI.INSERTER_SETUP_DIALOG then
+    local player = game.get_player(event.player_index)
+    if player then destroy_inserter_setup_dialog(player) end
+  elseif event.element.name == Constants.GUI.FRAME then
     Gui.close_player(event.player_index)
   end
 end
@@ -1289,6 +1363,114 @@ end
 local function instance_for_event(event)
   local unit_number = Registry.root().gui_players[event.player_index]
   return unit_number and Registry.instance(unit_number) or nil
+end
+
+local function show_inserter_setup_error(player, caption)
+  clear_inserter_setup(player)
+  local frame = frame_for(player)
+  if not frame or not frame.valid then return end
+  local decorated_caption = {
+    "",
+    "[virtual-signal=" .. Constants.STATUS_SIGNAL.error .. "] ",
+    caption,
+  }
+  inserter_setup_preview_by_player[player.index] = {
+    error_caption = decorated_caption,
+  }
+  local elements = elements_for(player, frame)
+  elements[Constants.GUI.INSERTER_SETUP_ERROR].caption = decorated_caption
+  elements[Constants.GUI.INSERTER_SETUP_ERROR].visible = true
+end
+
+local function show_inserter_setup_dialog(player, inserter_count, scope_signature)
+  clear_inserter_setup(player)
+  local frame = frame_for(player)
+  if not frame or not frame.valid then return end
+  inserter_setup_preview_by_player[player.index] = {
+    scope_signature = scope_signature,
+  }
+
+  local dialog = player.gui.screen.add{
+    type = "frame",
+    name = Constants.GUI.INSERTER_SETUP_DIALOG,
+    direction = "vertical",
+  }
+  dialog.style.width = math.min(560, display_layout(player).width)
+
+  local titlebar = dialog.add{type = "flow", direction = "horizontal"}
+  titlebar.style.vertical_align = "center"
+  titlebar.drag_target = dialog
+  titlebar.add{
+    type = "label",
+    caption = {"batch-request-combinator.gui-inserter-setup-dialog-title", inserter_count},
+    style = "frame_title",
+    ignored_by_interaction = true,
+  }
+  local drag = titlebar.add{type = "empty-widget", style = "draggable_space_header"}
+  drag.style.horizontally_stretchable = true
+  drag.style.height = 24
+  drag.drag_target = dialog
+  titlebar.add{
+    type = "sprite-button",
+    name = Constants.GUI.INSERTER_SETUP_DIALOG_CLOSE,
+    style = "frame_action_button",
+    sprite = "utility/close",
+    tooltip = {"batch-request-combinator.gui-close"},
+  }
+
+  local content = dialog.add{
+    type = "frame",
+    direction = "vertical",
+    style = "inside_shallow_frame_with_padding",
+  }
+  content.style.horizontally_stretchable = true
+  local message = content.add{
+    type = "label",
+    caption = {
+      "",
+      "[virtual-signal=" .. Constants.STATUS_SIGNAL.warning .. "] ",
+      {"batch-request-combinator.gui-inserter-setup-confirm"},
+    },
+  }
+  message.style.single_line = false
+  message.style.horizontally_stretchable = true
+
+  local actions = dialog.add{
+    type = "flow",
+    direction = "horizontal",
+    style = "dialog_buttons_horizontal_flow",
+  }
+  actions.style.horizontally_stretchable = true
+  local cancel = actions.add{
+    type = "button",
+    name = Constants.GUI.INSERTER_SETUP_CANCEL,
+    caption = {"batch-request-combinator.gui-cancel"},
+    style = "back_button",
+  }
+  cancel.style.font = "default-semibold"
+  local spacer = actions.add{type = "empty-widget"}
+  spacer.style.horizontally_stretchable = true
+  spacer.drag_target = dialog
+  local confirm = actions.add{
+    type = "button",
+    name = Constants.GUI.INSERTER_SETUP_CONFIRM,
+    caption = {"batch-request-combinator.gui-inserter-setup-confirm-action", inserter_count},
+    style = "confirm_button",
+  }
+  confirm.style.font = "default-semibold"
+
+  dialog.force_auto_center()
+  dialog.bring_to_front()
+  player.opened = dialog
+end
+
+local function preview_inserter_setup(player, instance)
+  local valid, error_code, error_detail, preview = StateMachine.preview_inserter_setup(instance)
+  if valid then
+    show_inserter_setup_dialog(player, preview.inserter_count, preview.scope_signature)
+  else
+    show_inserter_setup_error(player, Util.localised_error(error_code, error_detail))
+  end
 end
 
 local function show_drain_confirmation(player, caption, scope_signature)
@@ -1344,13 +1526,19 @@ local NAVIGATION_EVENTS = {
 function Gui.on_click(event)
   local element = event.element
   if not element or not element.valid then return end
+  local player = game.get_player(event.player_index)
+  if element.name == Constants.GUI.INSERTER_SETUP_DIALOG_CLOSE
+    or element.name == Constants.GUI.INSERTER_SETUP_CANCEL then
+    if player then clear_inserter_setup(player) end
+    return
+  end
   if element.name == Constants.GUI.CLOSE then
     Gui.close_player(event.player_index)
     return
   end
+  if not player then return end
   local instance = instance_for_event(event)
   if not instance then return end
-  local player = game.get_player(event.player_index)
   local requested_inspector = NAVIGATION_EVENTS[element.name]
   if requested_inspector then
     local previous_inspector = inspector_by_player[event.player_index]
@@ -1358,6 +1546,10 @@ function Gui.on_click(event)
     if previous_inspector == INSPECTOR.MAINTENANCE
       and inspector_by_player[event.player_index] ~= INSPECTOR.MAINTENANCE then
       hide_drain_confirmation(player)
+    end
+    if previous_inspector == INSPECTOR.CONFIGURATION
+      and inspector_by_player[event.player_index] ~= INSPECTOR.CONFIGURATION then
+      clear_inserter_setup(player)
     end
     if inspector_by_player[event.player_index] == INSPECTOR.MAINTENANCE then
       preview_drain(player, instance)
@@ -1371,6 +1563,19 @@ function Gui.on_click(event)
     capture_diagnostics(event.player_index, instance)
   elseif element.name == Constants.GUI.DIAGNOSTICS_PRINT then
     Debug.print(event.player_index)
+  elseif element.name == Constants.GUI.INSERTER_SETUP then
+    preview_inserter_setup(player, instance)
+  elseif element.name == Constants.GUI.INSERTER_SETUP_CONFIRM then
+    local preview = inserter_setup_preview_by_player[event.player_index]
+    local expected_scope_signature = preview and preview.scope_signature or nil
+    local configured, error_code, error_detail, configured_count =
+      StateMachine.configure_inserters(instance, expected_scope_signature)
+    if not configured then
+      show_inserter_setup_error(player, Util.localised_error(error_code, error_detail))
+      return
+    end
+    clear_inserter_setup(player)
+    player.print{"batch-request-combinator.message-inserter-setup-complete", configured_count}
   elseif element.name == Constants.GUI.DRAIN_CANCEL then
     hide_drain_confirmation(player)
     inspector_by_player[event.player_index] = nil
@@ -1404,6 +1609,8 @@ function Gui.on_checked_changed(event)
   if not element or not element.valid then return end
   local instance = instance_for_event(event)
   if not instance or instance.state ~= Constants.STATE.ARMED then return end
+  local player = game.get_player(event.player_index)
+  if player then clear_inserter_setup(player) end
   if element.name == Constants.GUI.AUTO_CLEANUP_AFTER_INTERRUPT then
     instance.auto_cleanup_after_interrupt = element.state == true
     Gui.refresh_instance(instance)
@@ -1433,14 +1640,25 @@ end
 function Gui.on_player_removed(event)
   inspector_by_player[event.player_index] = nil
   drain_preview_by_player[event.player_index] = nil
+  inserter_setup_preview_by_player[event.player_index] = nil
   diagnostics_by_player[event.player_index] = nil
   clear_player_registration(event.player_index)
+end
+
+function Gui.on_player_context_lost(event)
+  local player = game.get_player(event.player_index)
+  if player then
+    clear_inserter_setup(player)
+  else
+    inserter_setup_preview_by_player[event.player_index] = nil
+  end
 end
 
 function Gui.on_load()
   element_cache_by_player = {}
   inspector_by_player = {}
   drain_preview_by_player = {}
+  inserter_setup_preview_by_player = {}
   diagnostics_by_player = {}
 end
 

@@ -475,6 +475,265 @@ local function destination_blocked(inserter)
     and inserter.status == statuses.waiting_for_space_in_destination
 end
 
+local function setup_candidates(instance)
+  local targets, inserters, endpoints_by_unit = TargetDiscovery.discover(instance.entity)
+  if #targets == 0 then return nil, nil, Constants.ERROR.NO_TARGETS end
+  local root = Registry.root()
+  local target_units = {}
+  local candidate_count_by_target = {}
+  local signature_parts = {"m:" .. tostring(instance.tail_mode)}
+  for _, target in ipairs(targets) do
+    local owner = root.chest_owners[target.unit_number]
+    if owner then
+      return nil, nil, Constants.ERROR.TARGET_CONFLICT, target.entity.localised_name
+    end
+    target_units[target.unit_number] = true
+    candidate_count_by_target[target.unit_number] = 0
+    signature_parts[#signature_parts + 1] = "t:" .. tostring(target.unit_number)
+  end
+  local candidates = {}
+  local connected_networks_by_unit = {}
+  for _, inserter in ipairs(inserters) do
+    local pickup = inserter and inserter.valid and inserter.pickup_target or nil
+    if pickup and pickup.valid and target_units[pickup.unit_number]
+      and Util.is_same_force_and_surface(inserter, instance.entity) then
+      local owner = root.inserter_owners[inserter.unit_number]
+      if owner then
+        return nil, nil, Constants.ERROR.INSERTER_OWNERSHIP, diagnostic(
+          inserter,
+          {"batch-request-combinator.inserter-diagnostic-ownership"}
+        )
+      end
+      local endpoints = endpoints_by_unit[inserter.unit_number]
+      local connected, red, green = TargetDiscovery.connected_input_networks(
+        instance.entity,
+        inserter,
+        endpoints
+      )
+      if not connected then
+        return nil, nil, Constants.ERROR.INSERTER_CONFIGURATION, diagnostic(
+          inserter,
+          {"batch-request-combinator.inserter-diagnostic-endpoint"}
+        )
+      end
+      candidates[#candidates + 1] = inserter
+      candidate_count_by_target[pickup.unit_number] = candidate_count_by_target[pickup.unit_number] + 1
+      connected_networks_by_unit[inserter.unit_number] = {red = red, green = green}
+    end
+  end
+  table.sort(candidates, function(left, right) return left.unit_number < right.unit_number end)
+  if instance.tail_mode == Constants.TAIL_MODE.SINGLE then
+    for _, target in ipairs(targets) do
+      local count = candidate_count_by_target[target.unit_number]
+      if count ~= 1 then
+        return nil, nil, Constants.ERROR.INSERTER_CONFIGURATION, diagnostic(
+          target.entity,
+          count_reason(Constants.TAIL_MODE.SINGLE, count)
+        )
+      end
+    end
+  end
+  if #candidates == 0 then return nil, nil, Constants.ERROR.INSERTER_CONFIGURATION end
+  for _, inserter in ipairs(candidates) do
+    signature_parts[#signature_parts + 1] = "i:" .. tostring(inserter.unit_number)
+  end
+  return candidates, table.concat(signature_parts, ";"), nil, nil, connected_networks_by_unit
+end
+
+local function setup_snapshot(inserter, connected_networks)
+  local behavior = inserter.get_control_behavior()
+  if not behavior or not behavior.valid then return nil end
+  local filters = {}
+  for index = 1, inserter.filter_slot_count or 0 do filters[index] = inserter.get_filter(index) end
+  local network_selection = behavior.input_networks
+  local input_red, input_green = input_networks(behavior)
+  local position = inserter.position
+  return {
+    entity = inserter,
+    unit_number = inserter.unit_number,
+    diagnostic_name = inserter.localised_name,
+    diagnostic_x = position and position.x,
+    diagnostic_y = position and position.y,
+    behavior = behavior,
+    circuit_enable_disable = behavior.circuit_enable_disable,
+    circuit_condition = behavior.circuit_condition,
+    connect_to_logistic_network = behavior.connect_to_logistic_network,
+    circuit_set_stack_size = behavior.circuit_set_stack_size,
+    circuit_set_filters = behavior.circuit_set_filters,
+    input_networks_supported = network_selection ~= nil,
+    input_network_red = input_red,
+    input_network_green = input_green,
+    desired_input_network_red = network_selection ~= nil and connected_networks.red or input_red,
+    desired_input_network_green = network_selection ~= nil and connected_networks.green or input_green,
+    stack_size_override = inserter.inserter_stack_size_override or 0,
+    filter_slot_count = inserter.filter_slot_count or 0,
+    use_filters = inserter.use_filters == true,
+    filters = filters,
+  }
+end
+
+local function clear_setup_filters(inserter)
+  for index = 1, inserter.filter_slot_count or 0 do inserter.set_filter(index, nil) end
+end
+
+local function setup_signals_equal(left, right)
+  if left == nil or right == nil then return left == right end
+  return left.name == right.name
+    and (left.type or "item") == (right.type or "item")
+    and Util.quality_name(left.quality) == Util.quality_name(right.quality)
+end
+
+local function setup_conditions_equal(left, right)
+  if left == nil or right == nil then return left == right end
+  if not setup_signals_equal(left.first_signal, right.first_signal)
+    or not setup_signals_equal(left.second_signal, right.second_signal)
+    or (left.comparator or "<") ~= (right.comparator or "<") then
+    return false
+  end
+  return left.second_signal ~= nil or (left.constant or 0) == (right.constant or 0)
+end
+
+local function setup_filters_equal(left, right)
+  if left == nil or right == nil then return left == right end
+  local left_name, left_quality, left_comparator = filter_identity(left)
+  local right_name, right_quality, right_comparator = filter_identity(right)
+  return left_name ~= nil and right_name ~= nil
+    and left_name == right_name
+    and left_quality == right_quality
+    and left_comparator == right_comparator
+end
+
+local function setup_snapshot_matches(snapshot)
+  local readable, matches = pcall(function()
+    local inserter = snapshot.entity
+    if not inserter.valid or inserter.unit_number ~= snapshot.unit_number then return false end
+    local behavior = inserter.get_control_behavior()
+    if not behavior or not behavior.valid then return false end
+    local network_selection = behavior.input_networks
+    local input_red, input_green = input_networks(behavior)
+    if behavior.circuit_enable_disable ~= snapshot.circuit_enable_disable
+      or not setup_conditions_equal(behavior.circuit_condition, snapshot.circuit_condition)
+      or behavior.connect_to_logistic_network ~= snapshot.connect_to_logistic_network
+      or behavior.circuit_set_stack_size ~= snapshot.circuit_set_stack_size
+      or behavior.circuit_set_filters ~= snapshot.circuit_set_filters
+      or (network_selection ~= nil) ~= snapshot.input_networks_supported
+      or input_red ~= snapshot.input_network_red
+      or input_green ~= snapshot.input_network_green
+      or (inserter.inserter_stack_size_override or 0) ~= snapshot.stack_size_override
+      or (inserter.use_filters == true) ~= snapshot.use_filters
+      or (inserter.filter_slot_count or 0) ~= snapshot.filter_slot_count then
+      return false
+    end
+    for index = 1, snapshot.filter_slot_count do
+      if not setup_filters_equal(inserter.get_filter(index), snapshot.filters[index]) then return false end
+    end
+    return true
+  end)
+  return readable and matches
+end
+
+local function restore_setup_snapshot(snapshot)
+  local inserter = snapshot.entity
+  local readable, behavior = pcall(function()
+    if not inserter.valid or inserter.unit_number ~= snapshot.unit_number then return nil end
+    return inserter.get_control_behavior()
+  end)
+  if not readable or not behavior or not behavior.valid then return false end
+  local function attempt(callback) pcall(callback) end
+  attempt(function() behavior.circuit_condition = snapshot.circuit_condition end)
+  attempt(function() behavior.circuit_enable_disable = snapshot.circuit_enable_disable end)
+  attempt(function() behavior.connect_to_logistic_network = snapshot.connect_to_logistic_network end)
+  attempt(function() behavior.circuit_set_stack_size = snapshot.circuit_set_stack_size end)
+  attempt(function() behavior.circuit_set_filters = snapshot.circuit_set_filters end)
+  if snapshot.input_networks_supported then
+    attempt(function()
+      behavior.input_networks = {
+        red = snapshot.input_network_red,
+        green = snapshot.input_network_green,
+      }
+    end)
+  end
+  for index = 1, snapshot.filter_slot_count do
+    attempt(function() inserter.set_filter(index, snapshot.filters[index]) end)
+  end
+  attempt(function() inserter.use_filters = snapshot.use_filters end)
+  attempt(function() inserter.inserter_stack_size_override = snapshot.stack_size_override end)
+  return setup_snapshot_matches(snapshot)
+end
+
+local function apply_setup(snapshot)
+  return pcall(function()
+    local inserter = snapshot.entity
+    local behavior = snapshot.behavior
+    behavior.circuit_condition = {
+      first_signal = {type = "virtual", name = Constants.STATUS_SIGNAL.ready},
+      comparator = ">",
+      constant = 0,
+    }
+    behavior.circuit_enable_disable = true
+    behavior.connect_to_logistic_network = false
+    behavior.circuit_set_stack_size = false
+    behavior.circuit_set_filters = false
+    if snapshot.input_networks_supported
+      and (snapshot.input_network_red ~= snapshot.desired_input_network_red
+      or snapshot.input_network_green ~= snapshot.desired_input_network_green) then
+      behavior.input_networks = {
+        red = snapshot.desired_input_network_red,
+        green = snapshot.desired_input_network_green,
+      }
+    end
+    clear_setup_filters(inserter)
+    inserter.use_filters = false
+    local configured = capture_automatic_settings(inserter)
+    if not configured or configured.use_filters or next(configured.filter_keys or {}) ~= nil
+      or configured.input_network_red ~= snapshot.desired_input_network_red
+      or configured.input_network_green ~= snapshot.desired_input_network_green
+      or configured.original_override ~= snapshot.stack_size_override then
+      error("inserter setup verification failed")
+    end
+  end)
+end
+
+function InserterController.preview_setup(instance)
+  local candidates, signature, error_code, detail = setup_candidates(instance)
+  if not candidates then return false, error_code, detail end
+  return true, nil, nil, {inserter_count = #candidates, scope_signature = signature}
+end
+
+function InserterController.configure_setup(instance, expected_scope_signature)
+  local candidates, signature, error_code, detail, connected_networks_by_unit = setup_candidates(instance)
+  if not candidates then return false, error_code, detail end
+  if signature ~= expected_scope_signature then
+    return false, Constants.ERROR.INSERTER_SETUP_SCOPE_CHANGED
+  end
+  local snapshots = {}
+  for index, inserter in ipairs(candidates) do
+    local snapshot = setup_snapshot(inserter, connected_networks_by_unit[inserter.unit_number])
+    if not snapshot then return false, Constants.ERROR.INSERTER_SETUP_FAILED, inserter.localised_name end
+    snapshots[index] = snapshot
+  end
+  for index, snapshot in ipairs(snapshots) do
+    local applied = apply_setup(snapshot)
+    if not applied then
+      local rollback_failure
+      for restore_index = index, 1, -1 do
+        local restore_snapshot = snapshots[restore_index]
+        if not restore_setup_snapshot(restore_snapshot) and not rollback_failure then
+          rollback_failure = restore_snapshot
+        end
+      end
+      if rollback_failure then
+        return false, Constants.ERROR.INSERTER_SETUP_FAILED, diagnostic(
+          rollback_failure,
+          {"batch-request-combinator.inserter-diagnostic-setup-rollback", rollback_failure.unit_number}
+        )
+      end
+      return false, Constants.ERROR.INSERTER_SETUP_FAILED, snapshot.diagnostic_name
+    end
+  end
+  return true, nil, nil, #candidates
+end
+
 local function eligibility(instance, record, allowed, request_observation, held_key, held_count)
   local mode = instance.captured_tail_mode or Constants.TAIL_MODE.NO_TAIL
   local may_control = mode == Constants.TAIL_MODE.PARALLEL

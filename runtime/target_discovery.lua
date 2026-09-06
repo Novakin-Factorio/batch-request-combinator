@@ -52,15 +52,42 @@ local function add_endpoint(endpoints_by_unit, connector, root_connector_id)
   }
 end
 
-local function selected_input_network(entity, root_connector_id)
-  if entity.type ~= "inserter" then return true end
+local function selected_input_networks(entity)
+  if entity.type ~= "inserter" then return true, true end
   local behavior = entity.get_control_behavior and entity.get_control_behavior() or nil
   local selection = behavior and behavior.valid and behavior.input_networks or nil
-  if selection == nil then return true end
+  if selection == nil then return true, true end
+  return selection.red ~= false, selection.green ~= false
+end
+
+local function selected_input_network(entity, root_connector_id)
+  local red, green = selected_input_networks(entity)
   local ids = defines.wire_connector_id
-  if root_connector_id == ids.combinator_output_red then return selection.red ~= false end
-  if root_connector_id == ids.combinator_output_green then return selection.green ~= false end
+  if root_connector_id == ids.combinator_output_red then return red end
+  if root_connector_id == ids.combinator_output_green then return green end
   return false
+end
+
+function TargetDiscovery.connected_input_networks(parent, entity, endpoints)
+  if not Util.valid_entity(parent) or not Util.valid_entity(entity)
+    or type(endpoints) ~= "table" or #endpoints == 0 then
+    return false, false, false
+  end
+  local ids = defines.wire_connector_id
+  local red, green = false, false
+  for _, endpoint in ipairs(endpoints) do
+    local connector = endpoint.connector
+    local root = root_connector(parent, endpoint.root_connector_id)
+    if connector and connector.valid and connector.owner == entity
+      and connector.wire_connector_id == endpoint.connector_id
+      and endpoint.network_id ~= 0
+      and connector.network_id == endpoint.network_id
+      and root and root.valid and root.network_id == endpoint.network_id then
+      if endpoint.root_connector_id == ids.combinator_output_red then red = true end
+      if endpoint.root_connector_id == ids.combinator_output_green then green = true end
+    end
+  end
+  return red or green, red, green
 end
 
 function TargetDiscovery.validate_cached_endpoint(parent, entity, endpoints)

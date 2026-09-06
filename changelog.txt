@@ -1,4 +1,16 @@
 ---------------------------------------------------------------------------------------------------
+Version: 0.1.2
+Date: 2026-09-06
+  Features:
+    - Added an ARMED-and-zero Configuration action that previews and configures eligible loading inserters for READY > 0, selects only circuit input colors connected to the combinator output, disables conflicting controls and filters, and preserves stack-size overrides.
+  Changes:
+    - Single setup requires exactly one eligible inserter per managed requester chest; No-tail and Parallel setup allow multiple inserters per chest.
+    - Added a centered Factorio-native confirmation dialog with native button shapes and main-GUI text sizing; preview errors remain beside the Review inserter setup action.
+  Bugfixes:
+    - Prevented inserter setup from configuring inserters when either their requester chest or the inserter itself is reserved by an active batch, requester drain, or pending recovery, and added verified rollback after partial write failures.
+    - Added a 60-tick retry backoff for blocked requester-section and drain-setting recovery records without slowing successful one-per-tick cleanup.
+    - Routed exceptions from shared lifecycle output refreshes through fail-safe runtime error handling.
+---------------------------------------------------------------------------------------------------
 Version: 0.1.1
 Date: 2026-09-04
   Features:
@@ -18,7 +30,7 @@ Date: 2026-09-04
   Graphics:
     - Added static electric-blue mechanical counter-drum combinator sprites, inventory icons, and requester-chest animation, with no activity-light overlay.
   Compatibility:
-    - Bumped storage schema to 5 and declared a conflict with the earlier standalone batch-combinator-requester mod.
+    - Bumped storage schema to 5, removed the unavailable standalone batch-combinator-requester from dependency metadata, and documented that both mods still cannot be enabled together because they define the same requester prototypes.
     - Fixed the integrated requester icon path and kept the combinator and requester inventory icons independent and unbadged.
   Gui:
     - Added bounded DRAINING wait diagnostics for missing logistic coverage, missing or unavailable logistic robots, unavailable storage, and ongoing logistic movement.

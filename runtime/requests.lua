@@ -804,19 +804,21 @@ end
 
 function Requests.retry_one_tombstone(on_section_removed)
   local root = Registry.root()
-  if #root.cleanup_order == 0 then return end
+  if #root.cleanup_order == 0 then return true end
   local index = math.min(root.cleanup_cursor or 1, #root.cleanup_order)
   local key = root.cleanup_order[index]
   local tombstone = root.cleanup_tombstones[key]
   if not tombstone then
     table.remove(root.cleanup_order, index)
     root.cleanup_cursor = #root.cleanup_order == 0 and 1 or math.min(index, #root.cleanup_order)
-    return
+    return true
   end
   if remove_section(tombstone, tombstone.owner) then
     remove_tombstone_at(root, index, key, tombstone, on_section_removed)
+    return true
   else
     root.cleanup_cursor = (index % #root.cleanup_order) + 1
+    return false
   end
 end
 
