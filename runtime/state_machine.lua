@@ -124,13 +124,9 @@ local function clear_batch(instance)
   instance.captured_input_mode = nil
   instance.captured_tail_mode = nil
   instance.tail_target_index = nil
-  instance.tail_keys_by_target = nil
   instance.planned_tail_count = 0
-  instance.planning_limited = false
-  instance.planning_states = 0
   instance.tail_waiting_reason = nil
   instance.manual_tail_recovery = false
-  instance.temporary_override_count = 0
   instance.complete_since_tick = nil
   instance.complete_hold_until_tick = nil
   instance.reconciliation_output_suppressed = nil
@@ -537,7 +533,6 @@ function StateMachine.start_drain(instance, expected_scope_signature)
   local snapshot = CircuitInput.read_active(instance.entity, instance.sign_mode, nil)
   if snapshot.has_input then return false, Constants.ERROR.DRAIN_INPUT_ACTIVE end
   instance.drain_input_observed = false
-  instance.drain_kind = nil
   local started, error_code, error_detail, restoration_failed = Drain.start(
     instance,
     expected_scope_signature

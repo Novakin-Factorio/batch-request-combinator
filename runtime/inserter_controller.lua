@@ -150,7 +150,6 @@ local function capture_automatic_settings(inserter)
     input_network_signature = input_network_signature(behavior),
     input_network_red = input_red,
     input_network_green = input_green,
-    logistic_condition_disabled = true,
   }
 end
 
@@ -343,9 +342,6 @@ end
 local function clear_temporary(instance, record)
   Registry.root().temporary_overrides[record.unit_number] = nil
   record.temporary_override = nil
-  if instance.temporary_override_count and instance.temporary_override_count > 0 then
-    instance.temporary_override_count = instance.temporary_override_count - 1
-  end
 end
 
 local function hand_position(inserter)
@@ -547,6 +543,10 @@ local function setup_snapshot(inserter, connected_networks)
   for index = 1, inserter.filter_slot_count or 0 do filters[index] = inserter.get_filter(index) end
   local network_selection = behavior.input_networks
   local input_red, input_green = input_networks(behavior)
+  local desired_red, desired_green = input_red, input_green
+  if network_selection ~= nil then
+    desired_red, desired_green = connected_networks.red, connected_networks.green
+  end
   local position = inserter.position
   return {
     entity = inserter,
@@ -563,8 +563,8 @@ local function setup_snapshot(inserter, connected_networks)
     input_networks_supported = network_selection ~= nil,
     input_network_red = input_red,
     input_network_green = input_green,
-    desired_input_network_red = network_selection ~= nil and connected_networks.red or input_red,
-    desired_input_network_green = network_selection ~= nil and connected_networks.green or input_green,
+    desired_input_network_red = desired_red,
+    desired_input_network_green = desired_green,
     stack_size_override = inserter.inserter_stack_size_override or 0,
     filter_slot_count = inserter.filter_slot_count or 0,
     use_filters = inserter.use_filters == true,
@@ -1034,7 +1034,6 @@ function InserterController.process_scheduled(instance, request_observation)
         status = status,
       }
       root.temporary_overrides[record.unit_number] = instance.unit_number
-      instance.temporary_override_count = (instance.temporary_override_count or 0) + 1
       has_temporary = true
       wrote_any = true
     end
@@ -1331,7 +1330,6 @@ local function index_saved_temporaries(instance, root)
       pending[#pending + 1] = record
     end
   end
-  instance.temporary_override_count = #pending
   for _, record in ipairs(pending) do
     root.inserter_owners[record.unit_number] = instance.unit_number
     root.chest_owners[record.target_unit_number] = instance.unit_number

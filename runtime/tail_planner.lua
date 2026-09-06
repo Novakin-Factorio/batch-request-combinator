@@ -77,14 +77,12 @@ local function allocations_fit(allocations, targets)
 end
 
 local function add_tail_metadata(plan, items, targets, mode)
-  plan.tail_keys_by_target = {}
   local planned = {}
   if mode == Constants.TAIL_MODE.NO_TAIL then
     plan.planned_tail_count = 0
     return plan
   end
   for target_index, allocation in ipairs(plan.allocations) do
-    local keys = {}
     for _, item in ipairs(items) do
       local key = Util.item_key(item.name, item.quality or "normal")
       local count = allocation.by_key[key] or 0
@@ -92,11 +90,9 @@ local function add_tail_metadata(plan, items, targets, mode)
       local is_tail = count > 0 and transfer and count % transfer ~= 0
       if is_tail and (mode == Constants.TAIL_MODE.PARALLEL
         or target_index == plan.tail_target_index) then
-        keys[key] = count % transfer
         planned[target_index] = true
       end
     end
-    plan.tail_keys_by_target[target_index] = keys
   end
   local count = 0
   for _ in pairs(planned) do count = count + 1 end
@@ -173,7 +169,6 @@ local function balanced_counts(items, targets)
   local owners = {}
   local owner_count = {}
   for index = 1, #targets do owners[index], owner_count[index] = {}, 0 end
-  local movable = {}
 
   local function assign(group_index, seen_targets, seen_groups)
     if seen_groups[group_index] then return false end
@@ -185,8 +180,6 @@ local function balanced_counts(items, targets)
         seen_targets[target_index] = true
         if owner_count[target_index] < capacities[target_index] then
           add_selected(selected, counts, group, target_index)
-          movable[group_index] = movable[group_index] or {}
-          movable[group_index][target_index] = true
           owners[target_index][group_index] = true
           owner_count[target_index] = owner_count[target_index] + 1
           return true
@@ -197,20 +190,16 @@ local function balanced_counts(items, targets)
         for _, owner_group in ipairs(owner_groups) do
           owners[target_index][owner_group] = nil
           owner_count[target_index] = owner_count[target_index] - 1
-          movable[owner_group][target_index] = nil
           selected[owner_group][target_index] = nil
           counts[target_index][groups[owner_group].key] = counts[target_index][groups[owner_group].key] - 1
           groups[owner_group].need = groups[owner_group].need + 1
           if assign(owner_group, seen_targets, seen_groups) then
             add_selected(selected, counts, group, target_index)
-            movable[group_index] = movable[group_index] or {}
-            movable[group_index][target_index] = true
             owners[target_index][group_index] = true
             owner_count[target_index] = owner_count[target_index] + 1
             return true
           end
           add_selected(selected, counts, groups[owner_group], target_index)
-          movable[owner_group][target_index] = true
           owners[target_index][owner_group] = true
           owner_count[target_index] = owner_count[target_index] + 1
         end
@@ -319,18 +308,30 @@ local function tighten_domain(domain, low, high)
   return true, changed
 end
 
+local function greatest_common_divisor(left, right)
+  left, right = math.abs(left), math.abs(right)
+  while right ~= 0 do left, right = right, left % right end
+  return left
+end
+
 local function propagate(domains, items, targets)
   local changed = true
   while changed do
     changed = false
     for item_index, item in ipairs(items) do
       local item_domains = domains[item_index]
-      local low_sum, high_sum = 0, 0
+      local low_sum, high_sum, step_gcd = 0, 0, 0
       for _, domain in ipairs(item_domains) do
         low_sum = low_sum + domain.low
         high_sum = high_sum + domain.high
+        if domain.low < domain.high then
+          step_gcd = greatest_common_divisor(step_gcd, domain.step)
+        end
       end
       if item.count < low_sum or item.count > high_sum then return false end
+      -- Every remaining sum is low_sum plus multiples of the variable steps.
+      -- Fixed domains contribute their counts, including a fixed tail's offset.
+      if step_gcd > 0 and (item.count - low_sum) % step_gcd ~= 0 then return false end
       for _, domain in ipairs(item_domains) do
         local ok, tightened = tighten_domain(
           domain,
@@ -427,12 +428,6 @@ local function choose_branch(domains, items, targets)
   local upper = math.max(domain.low, math.min(domain.high, round_up(ideal, domain.step)))
   local value = math.abs(upper - ideal) < math.abs(lower - ideal) and upper or lower
   return best_item, best_target, value
-end
-
-local function greatest_common_divisor(left, right)
-  left, right = math.abs(left), math.abs(right)
-  while right ~= 0 do left, right = right, left % right end
-  return left
 end
 
 local function extended_gcd(left, right)
@@ -760,82 +755,6 @@ local function candidate_from_domains(domains, items, targets, tail_index)
   }, items, targets, Constants.TAIL_MODE.SINGLE)
 end
 
-local function simple_single_item_candidate(item, targets, tail_index)
-  for _, target in ipairs(targets) do
-    if target.joint_capacity then return nil end
-  end
-  local key = Util.item_key(item.name, item.quality or "normal")
-  local ideal = item.count / #targets
-  local counts = {}
-  local assigned = 0
-  for target_index, target in ipairs(targets) do
-    if not transfer_size(target, key) then return nil end
-    if target_index ~= tail_index then
-      local step = transfer_size(target, key)
-      local low = round_up(math.max(0, limit(target, "min_by_key", key, 0)), step)
-      local high = round_down(math.min(
-        item.count,
-        limit(target, "max_by_key", key, Constants.MAX_REQUEST_VALUE)
-      ), step)
-      if low > high then return nil end
-      local below = math.max(low, math.min(high, round_down(ideal, step)))
-      local above = math.max(low, math.min(high, round_up(ideal, step)))
-      local count = math.abs(above - ideal) < math.abs(below - ideal) and above or below
-      counts[target_index] = count
-      assigned = assigned + count
-    end
-  end
-  local tail = targets[tail_index]
-  local tail_low = math.max(0, limit(tail, "min_by_key", key, 0))
-  local tail_high = math.min(
-    item.count,
-    limit(tail, "max_by_key", key, Constants.MAX_REQUEST_VALUE)
-  )
-  local assigned_low = item.count - tail_high
-  local assigned_high = item.count - tail_low
-  if assigned > assigned_high then
-    for target_index, target in ipairs(targets) do
-      if target_index ~= tail_index and assigned > assigned_high then
-        local step = transfer_size(target, key)
-        local low = round_up(math.max(0, limit(target, "min_by_key", key, 0)), step)
-        local maximum_steps = math.floor((counts[target_index] - low) / step)
-        local needed_steps = math.ceil((assigned - assigned_high) / step)
-        local safe_steps = math.floor((assigned - assigned_low) / step)
-        local steps = math.min(maximum_steps, needed_steps, safe_steps)
-        counts[target_index] = counts[target_index] - steps * step
-        assigned = assigned - steps * step
-      end
-    end
-  elseif assigned < assigned_low then
-    for target_index, target in ipairs(targets) do
-      if target_index ~= tail_index and assigned < assigned_low then
-        local step = transfer_size(target, key)
-        local high = round_down(math.min(
-          item.count,
-          limit(target, "max_by_key", key, Constants.MAX_REQUEST_VALUE)
-        ), step)
-        local maximum_steps = math.floor((high - counts[target_index]) / step)
-        local needed_steps = math.ceil((assigned_low - assigned) / step)
-        local safe_steps = math.floor((assigned_high - assigned) / step)
-        local steps = math.min(maximum_steps, needed_steps, safe_steps)
-        counts[target_index] = counts[target_index] + steps * step
-        assigned = assigned + steps * step
-      end
-    end
-  end
-  if assigned < assigned_low or assigned > assigned_high then return nil end
-  counts[tail_index] = item.count - assigned
-  local by_target = {}
-  for target_index, count in ipairs(counts) do by_target[target_index] = {[key] = count} end
-  local allocations = allocation_from_counts({item}, by_target)
-  if not allocations_fit(allocations, targets) then return nil end
-  return add_tail_metadata({
-    allocations = allocations,
-    tail_target_index = tail_index,
-    balance_score = range_score(counts),
-  }, {item}, targets, Constants.TAIL_MODE.SINGLE)
-end
-
 local function quick_single_candidate(items, targets, tail_index)
   local domains = initial_domains(items, targets, tail_index)
   if not domains or not propagate(domains, items, targets) then return nil end
@@ -897,17 +816,6 @@ function TailPlanner.plan(items, targets, mode)
   end
   if mode ~= Constants.TAIL_MODE.SINGLE then return nil, "unknown-tail-mode" end
   local best
-  if #items == 1 then
-    for tail_index = 1, #targets do
-      local candidate = simple_single_item_candidate(items[1], targets, tail_index)
-      if candidate and (not best or candidate.balance_score < best.balance_score
-        or (candidate.balance_score == best.balance_score
-          and candidate.tail_target_index < best.tail_target_index)) then
-        best = candidate
-      end
-    end
-    if best then return best end
-  end
   for tail_index = 1, #targets do
     local candidate = quick_single_candidate(items, targets, tail_index)
     if candidate and (not best or candidate.balance_score < best.balance_score

@@ -73,9 +73,9 @@ local function current_owned_section_index(target, section, observed_point)
   local entity = target.entity
   local point = observed_point or entity.get_requester_point()
   if not point or not point.valid then return nil end
-  for _, current in pairs(point.sections or {}) do
-    if current == section and type(current.index) == "number" then return current.index end
-  end
+  local index = section.index
+  local readable, current = pcall(point.get_section, index)
+  if readable and current == section then return index end
   return nil
 end
 
@@ -690,15 +690,7 @@ function Requests.sections_absent(instance)
   return true
 end
 
-function Requests.cleanup_sections(instance)
-  instance.mutating_sections = true
-  local success = true
-  for _, target in ipairs(instance.targets or {}) do
-    if not remove_section(target, instance.unit_number) then success = false end
-  end
-  instance.mutating_sections = false
-  return success
-end
+Requests.cleanup_sections = Requests.remove_sections
 
 local function tombstone_key(root, owner_unit_number, target_unit_number, entity, section)
   local base = tostring(owner_unit_number) .. ":" .. tostring(target_unit_number)
@@ -802,7 +794,7 @@ local function remove_tombstone_at(root, index, key, tombstone, on_section_remov
   end
 end
 
-function Requests.retry_one_tombstone(on_section_removed)
+function Requests.retry_one_tombstone(on_section_removed, tick)
   local root = Registry.root()
   if #root.cleanup_order == 0 then return true end
   local index = math.min(root.cleanup_cursor or 1, #root.cleanup_order)
@@ -813,7 +805,19 @@ function Requests.retry_one_tombstone(on_section_removed)
     root.cleanup_cursor = #root.cleanup_order == 0 and 1 or math.min(index, #root.cleanup_order)
     return true
   end
-  if remove_section(tombstone, tombstone.owner) then
+  tick = tick or (game and game.tick) or 0
+  if tick < (tombstone.retry_after_tick or 0) then
+    root.cleanup_cursor = (index % #root.cleanup_order) + 1
+    return false
+  end
+  -- Set the deadline before native calls so thrown failures back off as well.
+  tombstone.retry_after_tick = tick + Constants.DEFERRED_RETRY_INTERVAL_TICKS
+  local called, removed = pcall(remove_section, tombstone, tombstone.owner)
+  if not called then
+    root.cleanup_cursor = (index % #root.cleanup_order) + 1
+    error(removed)
+  end
+  if removed then
     remove_tombstone_at(root, index, key, tombstone, on_section_removed)
     return true
   else
@@ -1189,8 +1193,11 @@ function Requests.begin_sections(instance)
       return false, Constants.ERROR.INSUFFICIENT_FILTERS, target.entity.localised_name
     end
     target.section = section
-    local deactivated = pcall(function() section.active = false end)
-    if not deactivated or section.active then
+    local deactivated = pcall(function()
+      section.active = false
+      section.multiplier = 1
+    end)
+    if not deactivated or section.active or section.multiplier ~= 1 then
       rollback_setup(instance)
       return false, Constants.ERROR.REQUEST_WRITE_FAILED, target.entity.localised_name
     end
@@ -1239,7 +1246,7 @@ end
 local function verify_owned_section(target, observed_point)
   local section = target.section
   if not section or not current_owned_section_index(target, section, observed_point) then return false end
-  if not section.active then return false end
+  if not section.active or section.multiplier ~= 1 then return false end
   if section.filters_count ~= #target.allocation.items then return false end
   for index, item in ipairs(target.allocation.items) do
     if not verify_slot(section, index, item) then return false end
@@ -1632,17 +1639,6 @@ function Requests.validate_reconciled_state(instance)
     return false, Constants.ERROR.DELIVERY_MISMATCH
   end
   return true
-end
-
-function Requests.release_claims(instance, has_unresolved_target, release_target_claims)
-  for _, target in ipairs(instance.targets or {}) do
-    local target_unit = cleanup_target_unit_number(target)
-    if target.section == nil and target_unit
-      and not has_unresolved_target(target_unit) then
-      release_target_claims(target_unit)
-      release_target(instance.unit_number, target, false, instance)
-    end
-  end
 end
 
 return Requests

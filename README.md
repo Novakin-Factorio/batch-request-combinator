@@ -4,6 +4,8 @@ Batch Request Combinator captures quality-aware item signals once, stages one ex
 
 Batch Request Combinator requires Factorio 2.1. The Quality mod is optional.
 
+Version 0.1.3 fixes inserter input-color selection and interrupted cleanup, verifies exact request multipliers, and avoids unnecessary Single-tail planning work. Normal batch quantities, modes, and READY/COMPLETE timing are unchanged.
+
 The included Batch-Combinator Requester defaults to 5,000 inventory slots and uses Factorio's native exact logistic mode. Its capacity is configurable from 48 to 5,000 as a startup mod setting and does not scale with chest quality. Compatible ordinary non-exact requesters remain supported: robots may briefly overdeliver, but the owned request stays active with equal minimum and maximum values while Factorio returns the surplus through the chest's logistic trash inventory. Loading never starts until the main inventory equals its allocation, the trash inventory is empty, and both native delivery and pickup activity are clear.
 
 <p align="center">
@@ -98,8 +100,14 @@ To limit UPS impact, combinator checks are spread across game ticks instead of r
 
 Run `/batch-request-combinator-stats` for registry, state, bucket, profiler, and cleanup summaries.
 
-In a [GitHub source checkout](https://github.com/Novakin-Factorio/batch-request-combinator), run `powershell -ExecutionPolicy Bypass -File tests/run-tests.ps1` for the minimum offline regression suite. It uses an installed Lua interpreter when available and otherwise runs Fengari through `npx`. The game-ready release ZIP does not include these test scripts.
+In a [GitHub source checkout](https://github.com/Novakin-Factorio/batch-request-combinator), run `powershell -ExecutionPolicy Bypass -File tests/run-tests.ps1` for the offline regression suite. It covers inserter setup, request ownership and rollback, drain recovery, planning, and batch transitions, plus source syntax and English/French locale parity. It uses an installed Lua interpreter when available and otherwise runs Fengari through `npx`. These tests do not replace validation inside Factorio. The game-ready release ZIP does not include these test scripts.
+
+The 0.1.3 offline suite passed all five test scripts, syntax checks for 28 product Lua files, and locale parity for 263 keys per language. A separate comparison preserved the previous planner's results across 1,200 cases. The gameplay code was manually tested through FMTK in Factorio 2.1.17 at English 1920×1080 and 100% UI scale; the maintainer reported no issues, and the session log recorded no Factorio Warning/Error severity lines or matching mod runtime errors and a normal exit. That test candidate was labeled 0.1.2; the release changes only version metadata and documentation from its packaged gameplay code.
+
+This remains experimental. Automated in-game harnesses were not run for this update. Save/reload recovery, native robot-overdelivery edge cases, multiplayer, additional languages and UI scales, and large-factory UPS remain unverified for this version. The FMTK empty-lab fixture used for this session does not support reloading a populated test world; save/reload proof requires a separate suitable fixture.
 
 Use Abort batch during an active batch to lower outputs, restore a verifiable temporary override, and remove owned requests. In ERROR the same action is named Reset batch; it clears failed mod-owned state but never removes physical chest contents. Neither action starts automatic draining, and any remaining chest contents require the explicit Maintenance drain after input reaches zero. If input remains high, ABORTED waits for zero before returning to ARMED. Removing or replacing the combinator also never starts automatic cleanup and uses ownership-preserving restoration; a failed restoration retains a tombstone and the affected claims instead of allowing unsafe reuse.
 
 Replacing a managed requester chest during an active batch invalidates the captured topology; Reset batch cannot recreate circuit wires. Set the request input to zero, reconnect every replacement chest and loading inserter to the output network, wait for ARMED, then raise the request again.
+
+If a drained chest disappears before save reconciliation, surviving chests still retain their verified original Trash-unrequested settings for restoration. Deferred recovery visits one record per queue per tick; each failed record waits at least 60 ticks before another native attempt, without pausing unrelated records. Owned request sections require a multiplier of 1; changing it during staging invalidates the request instead of silently changing its quantity.

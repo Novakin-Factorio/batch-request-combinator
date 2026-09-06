@@ -24,7 +24,7 @@ local function clear_destroy_registration(root, target)
 end
 
 local function release_claim(root, owner, target)
-  local unit_number = target_unit(target) or target.unit_number
+  local unit_number = target.unit_number
   if unit_number and root.chest_owners[unit_number] == owner then
     root.chest_owners[unit_number] = nil
   end
@@ -37,13 +37,11 @@ local function clear_instance(instance)
   instance.drain_remaining_total = 0
   instance.drain_pending_deliveries = 0
   instance.drain_last_remaining_total = 0
-  instance.drain_last_pending_total = 0
   instance.drain_last_progress_tick = nil
   instance.drain_last_diagnostic_tick = nil
   instance.drain_wait_reason = nil
   instance.drain_diagnostic_cursor = 1
   instance.drain_restore_blocked = false
-  instance.drain_kind = nil
   instance.mutating_drain = nil
   instance.monitored_inserters = {}
   instance.monitored_inserters_by_unit = nil
@@ -137,7 +135,6 @@ local function update_wait_diagnostic(instance, observations, remaining, pending
   local progressed = previous_remaining == nil or remaining < previous_remaining
 
   instance.drain_last_remaining_total = remaining
-  instance.drain_last_pending_total = pending
 
   if progressed then
     instance.drain_last_progress_tick = game.tick
@@ -256,7 +253,6 @@ local function restore_instance(instance)
         end
       end
     end
-    target.drain_restored = restored
     if not restored then
       all_restored = false
       first_detail = first_detail or (entity and entity.valid and entity.localised_name)
@@ -283,7 +279,7 @@ function Drain.preview(instance)
   }
 end
 
-local function activate_prepared(instance, prepared, drain_kind, allow_existing_claim)
+local function activate_prepared(instance, prepared, allow_existing_claim)
   local root = Registry.root()
   for _, target in ipairs(prepared.targets) do
     local owner = root.chest_owners[target.unit_number]
@@ -294,7 +290,6 @@ local function activate_prepared(instance, prepared, drain_kind, allow_existing_
   for index, target in ipairs(prepared.targets) do
     root.chest_owners[target.unit_number] = instance.unit_number
     target.original_trash_not_requested = prepared.observations[index].point.trash_not_requested
-    target.drain_restored = false
     target.destroy_registration = script.register_on_object_destroyed(target.entity)
     root.destroyed[target.destroy_registration] = {
       kind = "drain-target",
@@ -304,12 +299,10 @@ local function activate_prepared(instance, prepared, drain_kind, allow_existing_
   end
   instance.drain_targets = prepared.targets
   instance.drain_restore_blocked = false
-  instance.drain_kind = drain_kind
   instance.drain_initial_total = prepared.total
   instance.drain_remaining_total = prepared.total
   instance.drain_pending_deliveries = prepared.pending or 0
   instance.drain_last_remaining_total = prepared.total
-  instance.drain_last_pending_total = prepared.pending or 0
   instance.drain_last_progress_tick = game.tick
   instance.drain_last_diagnostic_tick = nil
   instance.drain_wait_reason = nil
@@ -321,13 +314,11 @@ local function activate_prepared(instance, prepared, drain_kind, allow_existing_
     local point = prepared.observations[index].point
     if point.trash_not_requested ~= true then
       local wrote = pcall(function() point.trash_not_requested = true end)
-      target.drain_written = wrote and point.trash_not_requested == true
-      if not target.drain_written then
+      local drain_written = wrote and point.trash_not_requested == true
+      if not drain_written then
         write_detail = target_detail(target)
         break
       end
-    else
-      target.drain_written = false
     end
   end
   instance.mutating_drain = nil
@@ -361,7 +352,7 @@ function Drain.start(instance, expected_scope_signature)
     clear_instance(instance)
     return false, Constants.ERROR.INSERTER_NOT_EMPTY, hand_detail
   end
-  return activate_prepared(instance, prepared, "maintenance", false)
+  return activate_prepared(instance, prepared, false)
 end
 
 local function automatic_target(target)
@@ -408,7 +399,6 @@ function Drain.start_after_interruption(instance, batch_targets)
   local started, error_code, error_detail, restoration_failed = activate_prepared(
     instance,
     prepared,
-    "automatic",
     true
   )
   if not started then return false, nil, error_code, error_detail, restoration_failed end
@@ -457,22 +447,27 @@ end
 
 function Drain.detach_failed_cleanup(instance)
   local root = Registry.root()
-  if instance.drain_restore_blocked then
-    for _, target in ipairs(instance.drain_targets or {}) do
-      release_claim(root, instance.unit_number, target)
-    end
-    clear_instance(instance)
-    return
+  local counts = {}
+  for _, target in ipairs(instance.drain_targets or {}) do
+    local unit_number = target.unit_number
+    if unit_number then counts[unit_number] = (counts[unit_number] or 0) + 1 end
   end
   for _, target in ipairs(instance.drain_targets or {}) do
     local entity = target.entity
-    local point = entity and entity.valid and entity.get_requester_point() or nil
+    local safe_snapshot = not target.drain_restore_blocked
+      and type(target.unit_number) == "number" and counts[target.unit_number] == 1
+      and entity and entity.valid and entity.unit_number == target.unit_number
+      and type(target.original_trash_not_requested) == "boolean"
+    local read, point = pcall(function()
+      return safe_snapshot and entity.get_requester_point() or nil
+    end)
+    if not read then point = nil end
     local restored = not entity or not entity.valid
-      or (entity.unit_number == target.unit_number and point and point.valid
+      or (safe_snapshot and point and point.valid
         and point.trash_not_requested == target.original_trash_not_requested)
     if restored then
       release_claim(root, instance.unit_number, target)
-    elseif root.chest_owners[target.unit_number] == instance.unit_number then
+    elseif safe_snapshot and root.chest_owners[target.unit_number] == instance.unit_number then
       clear_destroy_registration(root, target)
       local key = tombstone_key(instance.unit_number, target.unit_number)
       if not root.drain_tombstones[key] then root.drain_order[#root.drain_order + 1] = key end
@@ -485,7 +480,8 @@ function Drain.detach_failed_cleanup(instance)
       }
       root.chest_owners[target.unit_number] = instance.unit_number
     else
-      clear_destroy_registration(root, target)
+      -- Conflicting identities or snapshots never authorize a native write.
+      release_claim(root, instance.unit_number, target)
     end
   end
   table.sort(root.drain_order)
@@ -514,9 +510,10 @@ local function remove_tombstone(root, index, key, tombstone)
     or math.min(index, #root.drain_order)
 end
 
-function Drain.retry_one_tombstone()
+function Drain.retry_one_tombstone(tick)
   local root = Registry.root()
   if #root.drain_order == 0 then return true end
+  tick = tick or (game and game.tick) or 0
   local index = math.min(root.drain_cursor or 1, #root.drain_order)
   local key = root.drain_order[index]
   local tombstone = root.drain_tombstones[key]
@@ -526,25 +523,36 @@ function Drain.retry_one_tombstone()
       or math.min(index, #root.drain_order)
     return true
   end
+  if type(tombstone.retry_after_tick) == "number" and tick < tombstone.retry_after_tick then
+    root.drain_cursor = (index % #root.drain_order) + 1
+    return false
+  end
+  tombstone.retry_after_tick = tick + Constants.DEFERRED_RETRY_INTERVAL_TICKS
   if root.chest_owners[tombstone.unit_number] ~= tombstone.owner then
     root.drain_cursor = (index % #root.drain_order) + 1
     return false
   end
-  local entity = tombstone.entity
-  local restored = not entity or not entity.valid
-  if not restored and entity.unit_number == tombstone.unit_number then
-    local point = entity.get_requester_point()
-    if point and point.valid then
-      if point.trash_not_requested ~= tombstone.original_trash_not_requested then
-        local wrote = pcall(function()
-          point.trash_not_requested = tombstone.original_trash_not_requested
-        end)
-        restored = wrote
-          and point.trash_not_requested == tombstone.original_trash_not_requested
-      else
-        restored = true
+  local checked, restored = pcall(function()
+    local entity = tombstone.entity
+    if not entity or not entity.valid then return true end
+    if entity.unit_number == tombstone.unit_number
+      and type(tombstone.original_trash_not_requested) == "boolean" then
+      local point = entity.get_requester_point()
+      if point and point.valid then
+        if point.trash_not_requested ~= tombstone.original_trash_not_requested then
+          local wrote = pcall(function()
+            point.trash_not_requested = tombstone.original_trash_not_requested
+          end)
+          if not wrote then return false end
+        end
+        return point.trash_not_requested == tombstone.original_trash_not_requested
       end
     end
+    return false
+  end)
+  if not checked then
+    root.drain_cursor = (index % #root.drain_order) + 1
+    error(restored, 0)
   end
   if restored then
     remove_tombstone(root, index, key, tombstone)
@@ -627,32 +635,47 @@ end
 
 function Drain.reconcile(instance)
   if not Drain.has_lease(instance) then return true end
-  if instance.drain_restore_blocked then return false, Constants.ERROR.TARGET_CONFLICT end
   local root = Registry.root()
   local seen = {}
+  local error_code, error_detail
   for _, target in ipairs(instance.drain_targets) do
     local entity = target.entity
-    if type(target.unit_number) ~= "number" or seen[target.unit_number]
-      or not entity or not entity.valid or entity.unit_number ~= target.unit_number
-      or type(target.original_trash_not_requested) ~= "boolean" then
-      return false, Constants.ERROR.TARGET_LOST
-    end
-    seen[target.unit_number] = true
-    local owner = root.chest_owners[target.unit_number]
-    if owner and owner ~= instance.unit_number then
-      return false, Constants.ERROR.TARGET_CONFLICT, target_detail(target)
+    if entity and entity.valid then
+      local target_error
+      -- Releasing a competing owner's claim does not prove this snapshot's original value.
+      if target.drain_restore_blocked then
+        target_error = Constants.ERROR.TARGET_CONFLICT
+      elseif type(target.unit_number) ~= "number" or seen[target.unit_number]
+        or entity.unit_number ~= target.unit_number
+        or type(target.original_trash_not_requested) ~= "boolean" then
+        local previous = seen[target.unit_number]
+        if previous then previous.drain_restore_blocked = true end
+        target_error = Constants.ERROR.TARGET_LOST
+      else
+        seen[target.unit_number] = target
+        local owner = root.chest_owners[target.unit_number]
+        if owner and owner ~= instance.unit_number then target_error = Constants.ERROR.TARGET_CONFLICT end
+      end
+      if target_error then
+        target.drain_restore_blocked = true
+        if not error_code then error_code, error_detail = target_error, target_detail(target) end
+      end
     end
   end
+  if error_code then return false, error_code, error_detail end
   for _, target in ipairs(instance.drain_targets) do
-    root.chest_owners[target.unit_number] = instance.unit_number
     clear_destroy_registration(root, target)
-    target.destroy_registration = script.register_on_object_destroyed(target.entity)
-    root.destroyed[target.destroy_registration] = {
-      kind = "drain-target",
-      owner = instance.unit_number,
-      target = target.unit_number,
-    }
+    if target.entity and target.entity.valid then
+      root.chest_owners[target.unit_number] = instance.unit_number
+      target.destroy_registration = script.register_on_object_destroyed(target.entity)
+      root.destroyed[target.destroy_registration] = {
+        kind = "drain-target",
+        owner = instance.unit_number,
+        target = target.unit_number,
+      }
+    end
   end
+  instance.drain_restore_blocked = false
   return true
 end
 

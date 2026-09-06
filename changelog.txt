@@ -1,4 +1,18 @@
 ---------------------------------------------------------------------------------------------------
+Version: 0.1.3
+Date: 2026-09-06
+  Bugfixes:
+    - Corrected inserter setup when disabling an unconnected input color from Factorio's default both-colors selection.
+    - Preserved verifiable drain-restoration snapshots for surviving chests when another saved target disappears or has conflicting recovery data.
+    - Initialized and verified owned requester-section multipliers so altered multipliers cannot silently change batch quantities.
+    - Made deferred retry deadlines persistent and specific to each failed record, including native lookup exceptions, so blocked recovery no longer pauses unrelated cleanup.
+    - Made offline Lua failures return a failing process status and added focused planning, request, drain, reconciliation, and state-transition regressions.
+  Optimizations:
+    - Pruned arithmetically impossible Single-tail planning domains before repeated propagation, preserving allocation policy and the existing search budget without adding a timeout.
+    - Used direct native requester-section lookup for ownership verification and consolidated duplicate cleanup and validation code.
+  Info:
+    - Offline regressions passed. The gameplay code was manually tested through FMTK in Factorio 2.1.17 with no issues reported; automated in-game harnesses, save/reload recovery, multiplayer, and large-factory performance remain unverified for this update.
+---------------------------------------------------------------------------------------------------
 Version: 0.1.2
 Date: 2026-09-06
   Features:

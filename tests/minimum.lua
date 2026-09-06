@@ -40,22 +40,7 @@ equal(table.concat({
   targets[4].entity.unit_number,
 }, ","), "6,7,8,9", "target ordering")
 
--- One representative plan per tail mode.
-local TailPlanner = require("runtime.tail_planner")
-local iron_key = Util.item_key("iron-plate", "normal")
-local items = {{name = "iron-plate", quality = "normal", count = 10}}
-local plan_targets = {
-  {transfer_by_key = {[iron_key] = 4}},
-  {transfer_by_key = {[iron_key] = 4}},
-}
-for _, mode in ipairs(Constants.TAIL_MODE_ORDER) do
-  local plan, failure = TailPlanner.plan(items, plan_targets, mode)
-  assert(plan, "representative " .. mode .. " plan failed: " .. tostring(failure))
-  equal(plan.allocations[1].total + plan.allocations[2].total, 10,
-    mode .. " plan preserves total")
-end
-
--- Successful tombstones drain one per tick; unresolved entries back off for 60 ticks.
+-- The scheduler visits each queue every tick; records own their retry deadlines.
 local scheduler_root = {
   temporary_overrides = {},
   cleanup_order = {"cleanup-1", "cleanup-2"},
@@ -103,8 +88,8 @@ scheduler_root.cleanup_order[1] = "blocked-cleanup"
 scheduler_root.drain_order[1] = "blocked-drain"
 cleanup_resolves, drain_resolves = false, false
 for _, tick in ipairs{2, 3, 61, 62} do Scheduler.on_tick({tick = tick}, function() end) end
-equal(cleanup_retries, 4, "unresolved cleanup retry interval")
-equal(drain_retries, 4, "unresolved drain retry interval")
+equal(cleanup_retries, 6, "blocked cleanup does not suppress queue visits")
+equal(drain_retries, 6, "blocked drain does not suppress queue visits")
 
 -- Inserter setup is explicit, scope-bound, reversible on failure, and preserves stack overrides.
 defines = {wire_connector_id = {combinator_output_red = 1, combinator_output_green = 2}}
@@ -142,13 +127,14 @@ assert(RealTargetDiscovery.validate_cached_endpoint(discovery_parent, discovery_
 
 local discovered_targets
 local discovered_inserters
+local setup_red, setup_green = true, false
 package.loaded["runtime.target_discovery"] = {
   discover = function()
     local endpoints = {}
     for _, inserter in ipairs(discovered_inserters) do endpoints[inserter.unit_number] = {true} end
     return discovered_targets, discovered_inserters, endpoints
   end,
-  connected_input_networks = function() return true, true, false end,
+  connected_input_networks = function() return true, setup_red, setup_green end,
 }
 local setup_root = {chest_owners = {}, inserter_owners = {}}
 package.loaded["runtime.registry"] = {root = function() return setup_root end}
@@ -167,7 +153,7 @@ local function make_inserter(unit_number, fail_once)
     connect_to_logistic_network = true,
     circuit_set_stack_size = true,
     circuit_set_filters = true,
-    input_networks = {red = false, green = false},
+    input_networks = {red = true, green = true},
   }
   local inserter = {
     valid = true,
@@ -274,6 +260,23 @@ equal(inserter.inserter_stack_size_override, 3, "stack override preserved")
 assert(behavior.input_networks.red and not behavior.input_networks.green,
   "inserter setup selects only the connected output color")
 
+for _, connected in ipairs{{true, false}, {false, true}, {true, true}} do
+  for _, initially_enabled in ipairs{true, false} do
+    local candidate, candidate_behavior = make_inserter(22, {value = false})
+    candidate_behavior.input_networks = {red = initially_enabled, green = initially_enabled}
+    discovered_inserters = {candidate}
+    setup_red, setup_green = connected[1], connected[2]
+    local valid, _, _, candidate_preview = InserterController.preview_setup({entity = owner})
+    assert(valid, "connected-color setup preview")
+    assert(InserterController.configure_setup({entity = owner}, candidate_preview.scope_signature),
+      "connected-color setup applies")
+    equal(candidate_behavior.input_networks.red, setup_red, "exact red input selection")
+    equal(candidate_behavior.input_networks.green, setup_green, "exact green input selection")
+    equal(candidate.inserter_stack_size_override, 3, "selection repair preserves stack override")
+  end
+end
+setup_red, setup_green = true, false
+
 local prior_inserter, prior_behavior, prior_filters = make_inserter(25, {value = false})
 local rollback_failure = {value = true}
 local rollback_inserter, rollback_behavior, rollback_filters = make_inserter(30, rollback_failure)
@@ -292,7 +295,7 @@ for _, restored in ipairs{
   assert(not restored_behavior.circuit_enable_disable and restored_behavior.connect_to_logistic_network
       and restored_behavior.circuit_set_stack_size and restored_behavior.circuit_set_filters,
     "failed setup restores every inserter control setting")
-  assert(not restored_behavior.input_networks.red and not restored_behavior.input_networks.green,
+  assert(restored_behavior.input_networks.red and restored_behavior.input_networks.green,
     "failed setup restores circuit input selection")
   assert(restored_inserter.use_filters and restored_filters[1] ~= nil,
     "failed setup restores every inserter filter")

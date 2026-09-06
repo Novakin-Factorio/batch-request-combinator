@@ -68,6 +68,16 @@ local function selected_input_network(entity, root_connector_id)
   return false
 end
 
+local function endpoint_matches(parent, entity, endpoint)
+  local connector = endpoint.connector
+  local root = root_connector(parent, endpoint.root_connector_id)
+  return connector and connector.valid and connector.owner == entity
+    and connector.wire_connector_id == endpoint.connector_id
+    and endpoint.network_id ~= 0
+    and connector.network_id == endpoint.network_id
+    and root and root.valid and root.network_id == endpoint.network_id
+end
+
 function TargetDiscovery.connected_input_networks(parent, entity, endpoints)
   if not Util.valid_entity(parent) or not Util.valid_entity(entity)
     or type(endpoints) ~= "table" or #endpoints == 0 then
@@ -76,13 +86,7 @@ function TargetDiscovery.connected_input_networks(parent, entity, endpoints)
   local ids = defines.wire_connector_id
   local red, green = false, false
   for _, endpoint in ipairs(endpoints) do
-    local connector = endpoint.connector
-    local root = root_connector(parent, endpoint.root_connector_id)
-    if connector and connector.valid and connector.owner == entity
-      and connector.wire_connector_id == endpoint.connector_id
-      and endpoint.network_id ~= 0
-      and connector.network_id == endpoint.network_id
-      and root and root.valid and root.network_id == endpoint.network_id then
+    if endpoint_matches(parent, entity, endpoint) then
       if endpoint.root_connector_id == ids.combinator_output_red then red = true end
       if endpoint.root_connector_id == ids.combinator_output_green then green = true end
     end
@@ -96,13 +100,7 @@ function TargetDiscovery.validate_cached_endpoint(parent, entity, endpoints)
     return false
   end
   for _, endpoint in ipairs(endpoints) do
-    local connector = endpoint.connector
-    local root = root_connector(parent, endpoint.root_connector_id)
-    if connector and connector.valid and connector.owner == entity
-      and connector.wire_connector_id == endpoint.connector_id
-      and endpoint.network_id ~= 0
-      and connector.network_id == endpoint.network_id
-      and root and root.valid and root.network_id == endpoint.network_id
+    if endpoint_matches(parent, entity, endpoint)
       and selected_input_network(entity, endpoint.root_connector_id) then
       return true
     end
@@ -180,17 +178,6 @@ function TargetDiscovery.discover(parent)
   end
   table.sort(inserters, function(left, right) return left.unit_number < right.unit_number end)
   return targets, inserters, endpoints_by_unit
-end
-
-function TargetDiscovery.inserters_empty(inserters)
-  for _, inserter in ipairs(inserters or {}) do
-    if not inserter.valid then return false, "invalid" end
-    local held = inserter.held_stack
-    if held and held.valid_for_read and held.count > 0 then
-      return false, inserter.localised_name
-    end
-  end
-  return true
 end
 
 return TargetDiscovery

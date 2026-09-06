@@ -92,10 +92,7 @@ function BatchCoordinator.begin(instance, targets, inserters, endpoints_by_unit)
     return false, error_code, detail
   end
   instance.tail_target_index = plan.tail_target_index
-  instance.tail_keys_by_target = plan.tail_keys_by_target
   instance.planned_tail_count = plan.planned_tail_count or 0
-  instance.planning_limited = plan.planning_limited == true
-  instance.planning_states = plan.planning_states or 0
 
   local root = Registry.root()
   for index, target in ipairs(targets) do
@@ -197,18 +194,10 @@ function BatchCoordinator.detach_failed_cleanup(instance)
   instance.ready_counts = nil
 end
 
-function BatchCoordinator.retry_one_tombstone()
+function BatchCoordinator.retry_one_tombstone(tick)
   return Requests.retry_one_tombstone(function(owner, target_unit_number)
     InserterController.release_resolved_tombstones_for_target(owner, target_unit_number)
-  end)
-end
-
-function BatchCoordinator.release_claims(instance)
-  Requests.release_claims(
-    instance,
-    function(unit_number) return has_unresolved_target(instance, unit_number) end,
-    function(unit_number) return release_target_claims(instance, unit_number) end
-  )
+  end, tick)
 end
 
 function BatchCoordinator.validate_requesting(instance)
@@ -247,10 +236,6 @@ end
 
 function BatchCoordinator.process_tail(instance, request_observation)
   return InserterController.process_scheduled(instance, request_observation)
-end
-
-function BatchCoordinator.hands_empty(instance)
-  return InserterController.hands_empty(instance)
 end
 
 function BatchCoordinator.source_drained(instance, request_observation)

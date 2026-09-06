@@ -46,7 +46,7 @@ Red wire, green wire, or both are supported. Duplicate red and green paths count
 - Does not require Cybersyn, LTN, Wagon Split, or another train-control mod.
 - Do not enable the older standalone `batch-combinator-requester` beside this mod because both include the same requester entities.
 
-Save/reload during active batches, cargo-size overdelivery to ordinary requester chests, multiplayer, other languages or UI scales, more complex factory layouts, and very large factories remain experimental; try those setups in a safe save first. The current release was checked in Factorio 2.1.17 in English at 100% UI scale.
+The current gameplay code passed offline regression tests and a manual Factorio 2.1.17 session in English at 100% UI scale, with no issues reported. Automated in-game harnesses were not run for this update. Save/reload during active batches, cargo-size overdelivery to ordinary requester chests, multiplayer, other languages or UI scales, more complex factory layouts, and very large factories remain experimental; try those setups in a safe save first.
 
 ## 📦 Two requester choices
 
@@ -103,6 +103,8 @@ While the combinator is `ARMED` with zero input, **Maintenance** can preview and
 
 The **Batch processing interval** map setting ranges from 1 to 60 ticks and defaults to 12. Lower values make batches react sooner and use more processing time; higher values react more slowly and use less.
 
+Single-tail planning skips mathematically impossible allocation paths sooner, and a blocked cleanup no longer pauses unrelated recovery. These changes preserve normal batch behavior; large-factory UPS gains have not been measured.
+
 ## 🛠️ Unlocks and recipes
 
 The **Batch Request Combinator** technology requires **Circuit network** and **Logistic system**. It costs 150 cycles of Automation, Logistic, Chemical, and Utility science packs at 30 seconds per cycle and unlocks both items:
@@ -110,12 +112,13 @@ The **Batch Request Combinator** technology requires **Circuit network** and **L
 - **Batch Request Combinator:** 1 Decider combinator, 5 Advanced circuits, and 2 Processing units; 2-second craft.
 - **Batch-Combinator Requester:** 1 Requester chest, 5 Advanced circuits, and 2 Processing units; 2-second craft.
 
-## 🆕 What changed in 0.1.2
+## 🆕 What changed in 0.1.3
 
-- Added a preview-and-confirm action for the standard `READY` inserter settings.
-- Single now requires exactly one eligible inserter per chest during setup; Parallel and No-tail allow several.
-- Setup refuses inserters already in use by another batch or cleanup and identifies any inserter whose previous settings could not be restored after a failed change.
-- Improved interrupted-cleanup recovery and polished the confirmation dialog.
+- Fixed confirmed inserter setup leaving an unconnected circuit-input color enabled.
+- Preserved cleanup recovery for surviving requester chests when another saved target disappears.
+- Prevented changed request multipliers from silently changing the requested quantity.
+- Kept blocked cleanup from delaying unrelated recovery and reduced wasted Single-tail planning work.
+- Expanded regression tests without changing normal batch quantities, modes, or loading signals.
 
 ## ❓ Help and support
 

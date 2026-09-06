@@ -11,6 +11,7 @@ try {
 
     function Invoke-Lua {
         param([Parameter(Mandatory)][string[]]$Arguments)
+        $Arguments = @("tests/run-file.lua") + $Arguments
         if ($lua) {
             & $lua.Source @Arguments
         }
@@ -23,6 +24,9 @@ try {
     }
 
     Invoke-Lua -Arguments @("tests/minimum.lua")
+    foreach ($regression in Get-ChildItem tests -Filter *-regression.lua | Sort-Object Name) {
+        Invoke-Lua -Arguments @($regression.FullName)
+    }
 
     $sourceFiles = @(
         Get-Item control.lua, data.lua, settings.lua

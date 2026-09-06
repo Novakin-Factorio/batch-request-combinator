@@ -52,19 +52,6 @@ local function valid_tail_mode(mode)
     or mode == Constants.TAIL_MODE.PARALLEL
 end
 
-local function durable_configuration(instance)
-  return {
-    sign_mode = valid_sign_mode(instance and instance.sign_mode)
-      and instance.sign_mode or Constants.SIGN_MODE.ANY,
-    input_mode = valid_input_mode(instance and instance.input_mode)
-      and instance.input_mode or Constants.INPUT_MODE.FOLLOW,
-    tail_mode = valid_tail_mode(instance and instance.tail_mode)
-      and instance.tail_mode or Constants.TAIL_MODE.PARALLEL,
-    auto_cleanup_after_interrupt = instance
-      and instance.auto_cleanup_after_interrupt == true or false,
-  }
-end
-
 local function normalized_configuration(configuration)
   if type(configuration) ~= "table" then configuration = {sign_mode = configuration} end
   return {
@@ -137,7 +124,7 @@ local function remember_pending_replacement(instance)
     or (anchor and {x = anchor.x, y = anchor.y})
   if not surface_index or not force_index or not position then return end
   local slot = pending_slot(surface_index, force_index, position, true)
-  slot[position.y] = durable_configuration(instance)
+  slot[position.y] = normalized_configuration(instance)
 end
 
 local function take_pending_replacement(entity)
@@ -174,7 +161,7 @@ end
 
 local function handoff_replacement(instance, replacement)
   if not instance or not replacement or not replacement.valid then return nil end
-  local configuration = durable_configuration(instance)
+  local configuration = normalized_configuration(instance)
   Lifecycle.remove_instance(instance)
   return Lifecycle.register(replacement, configuration)
 end
@@ -255,7 +242,7 @@ function Lifecycle.on_cloned(event)
   if destination.name ~= Constants.ENTITY_NAME then return end
   local source = event.source
   local source_instance = source and source.valid and Registry.instance(source.unit_number) or nil
-  Lifecycle.register(destination, source_instance and durable_configuration(source_instance) or nil)
+  Lifecycle.register(destination, source_instance and normalized_configuration(source_instance) or nil)
 end
 
 function Lifecycle.remove_instance(instance)

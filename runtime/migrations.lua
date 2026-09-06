@@ -27,8 +27,6 @@ function Migrations.run()
     instance.drain_pending_deliveries = instance.drain_pending_deliveries or 0
     instance.drain_last_remaining_total = instance.drain_last_remaining_total
       or instance.drain_remaining_total
-    instance.drain_last_pending_total = instance.drain_last_pending_total
-      or instance.drain_pending_deliveries
     instance.drain_last_progress_tick = instance.drain_last_progress_tick
       or (#instance.drain_targets > 0 and game.tick or nil)
     instance.drain_diagnostic_cursor = instance.drain_diagnostic_cursor or 1
@@ -44,11 +42,6 @@ function Migrations.run()
     instance.auto_cleanup_after_interrupt = not migrate_auto_cleanup
       and instance.auto_cleanup_after_interrupt == true
     instance.requests_started = not migrate_auto_cleanup and instance.requests_started == true
-    if migrate_auto_cleanup then
-      instance.drain_kind = #instance.drain_targets > 0 and "maintenance" or nil
-    elseif instance.drain_kind ~= "automatic" and instance.drain_kind ~= "maintenance" then
-      instance.drain_kind = #instance.drain_targets > 0 and "maintenance" or nil
-    end
     instance.sign_mode = instance.sign_mode or Constants.SIGN_MODE.ANY
     if migrate_legacy_modes then
       instance.input_mode = Constants.INPUT_MODE.FOLLOW
@@ -66,7 +59,6 @@ function Migrations.run()
     instance.snapshot_reset_invalidated = instance.snapshot_reset_invalidated or false
     instance.snapshot_new_input_warning = instance.snapshot_new_input_warning or false
     instance.manual_tail_recovery = instance.manual_tail_recovery or false
-    instance.temporary_override_count = instance.temporary_override_count or 0
     if instance.cleanup_complete == nil then instance.cleanup_complete = false end
     instance.state = instance.state or Constants.STATE.ARMED
     instance.gui_players = instance.gui_players or {}
