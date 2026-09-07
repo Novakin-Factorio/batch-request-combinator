@@ -340,8 +340,30 @@ local function rebuild_record_index(instance)
 end
 
 local function clear_temporary(instance, record)
-  Registry.root().temporary_overrides[record.unit_number] = nil
+  local root = Registry.root()
+  root.temporary_overrides[record.unit_number] = nil
+  if next(root.temporary_overrides) == nil then root.temporary_override_retry_tick = nil end
   record.temporary_override = nil
+end
+
+local function temporary_restore_tick(temporary)
+  if type(temporary.retry_after_tick) == "number" then return temporary.retry_after_tick end
+  local written_tick = temporary.written_tick
+  return type(written_tick) == "number" and written_tick + 1 or 0
+end
+
+local function queue_temporary_override(root, unit_number, owner, temporary)
+  root.temporary_overrides[unit_number] = owner
+  local restore_tick = temporary_restore_tick(temporary)
+  local scheduled_tick = root.temporary_override_retry_tick
+  if type(scheduled_tick) ~= "number" or restore_tick < scheduled_tick then
+    root.temporary_override_retry_tick = restore_tick
+  end
+end
+
+local function defer_temporary_restore(temporary, error_code)
+  temporary.retry_after_tick = game.tick + Constants.DEFERRED_RETRY_INTERVAL_TICKS
+  temporary.retry_error_code = error_code
 end
 
 local function hand_position(inserter)
@@ -399,6 +421,13 @@ end
 local function restore_record(instance, record)
   local temporary = record.temporary_override
   if not temporary then return true end
+  if type(temporary.retry_after_tick) == "number" and game.tick < temporary.retry_after_tick then
+    local error_code = temporary.retry_error_code or Constants.ERROR.TAIL_RESTORE_FAILED
+    local reason = error_code == Constants.ERROR.INSERTER_OWNERSHIP
+      and {"batch-request-combinator.inserter-diagnostic-entity"}
+      or setting_reason("stack-override")
+    return false, error_code, diagnostic(record, reason)
+  end
   local inserter = record.entity
   if not inserter or not inserter.valid then
     clear_temporary(instance, record)
@@ -408,6 +437,7 @@ local function restore_record(instance, record)
     )
   end
   if inserter.type ~= "inserter" or inserter.unit_number ~= record.unit_number then
+    defer_temporary_restore(temporary, Constants.ERROR.INSERTER_OWNERSHIP)
     return false, Constants.ERROR.INSERTER_OWNERSHIP, diagnostic(
       record,
       {"batch-request-combinator.inserter-diagnostic-entity"}
@@ -424,6 +454,7 @@ local function restore_record(instance, record)
   local release_started = release_motion_started(inserter, temporary, held_key, held_count)
   local wrote = pcall(function() inserter.inserter_stack_size_override = record.original_override end)
   if not wrote or inserter.inserter_stack_size_override ~= record.original_override then
+    defer_temporary_restore(temporary, Constants.ERROR.TAIL_RESTORE_FAILED)
     return false, Constants.ERROR.TAIL_RESTORE_FAILED, diagnostic(
       record,
       setting_reason("stack-override")
@@ -853,7 +884,6 @@ function InserterController.prepare(instance, targets, connected_inserters, mode
   end
   instance.monitored_inserters = monitored
   rebuild_record_index(instance)
-  instance.inserters = {}
   return monitored
 end
 
@@ -1024,7 +1054,7 @@ function InserterController.process_scheduled(instance, request_observation)
           setting_reason("stack-override")
         )
       end
-      record.temporary_override = {
+      local temporary = {
         written_override = count,
         written_tick = game.tick,
         held_key = key,
@@ -1033,7 +1063,8 @@ function InserterController.process_scheduled(instance, request_observation)
         hand_y = hand_y,
         status = status,
       }
-      root.temporary_overrides[record.unit_number] = instance.unit_number
+      record.temporary_override = temporary
+      queue_temporary_override(root, record.unit_number, instance.unit_number, temporary)
       has_temporary = true
       wrote_any = true
     end
@@ -1066,6 +1097,10 @@ end
 
 function InserterController.process_temporary_overrides()
   local root = Registry.root()
+  local tick = game.tick
+  local scheduled_tick = root.temporary_override_retry_tick
+  if type(scheduled_tick) == "number" and tick < scheduled_tick then return {} end
+  root.temporary_override_retry_tick = nil
   local units = {}
   for unit_number in pairs(root.temporary_overrides) do units[#units + 1] = unit_number end
   table.sort(units)
@@ -1075,11 +1110,12 @@ function InserterController.process_temporary_overrides()
     if tombstone then
       local inserter = tombstone.entity
       local owner_instance = (root.instances or {})[tombstone.owner]
-      if not tombstone.override_resolved and game.tick > (tombstone.written_tick or -1) then
+      if not tombstone.override_resolved and tick >= temporary_restore_tick(tombstone) then
         if not inserter or not inserter.valid then
           tombstone.override_resolved = true
         elseif inserter.type ~= "inserter" or inserter.unit_number ~= tombstone.unit_number then
           tombstone.identity_conflict = true
+          defer_temporary_restore(tombstone, Constants.ERROR.INSERTER_OWNERSHIP)
           if owner_instance then
             failures[#failures + 1] = {
               instance = owner_instance,
@@ -1110,11 +1146,16 @@ function InserterController.process_temporary_overrides()
           local wrote = pcall(function() inserter.inserter_stack_size_override = tombstone.original_override end)
           tombstone.override_resolved = wrote
             and inserter.inserter_stack_size_override == tombstone.original_override
+          if not tombstone.override_resolved then
+            defer_temporary_restore(tombstone, Constants.ERROR.TAIL_RESTORE_FAILED)
+          end
         end
       end
       if tombstone.override_resolved then
         root.temporary_overrides[unit_number] = nil
         release_tombstone_claims(root, unit_number, tombstone)
+      else
+        queue_temporary_override(root, unit_number, tombstone.owner, tombstone)
       end
     else
       local owner = root.temporary_overrides[unit_number]
@@ -1122,10 +1163,16 @@ function InserterController.process_temporary_overrides()
       local record = instance and record_by_unit(instance, unit_number) or nil
       if not instance or not record or not record.temporary_override then
         root.temporary_overrides[unit_number] = nil
-      elseif game.tick > record.temporary_override.written_tick then
-        local restored, error_code, detail = restore_record(instance, record)
-        if not restored then
-          failures[#failures + 1] = {instance = instance, error_code = error_code, detail = detail}
+      else
+        local temporary = record.temporary_override
+        if tick >= temporary_restore_tick(temporary) then
+          local restored, error_code, detail = restore_record(instance, record)
+          if not restored then
+            failures[#failures + 1] = {instance = instance, error_code = error_code, detail = detail}
+          end
+        end
+        if record.temporary_override then
+          queue_temporary_override(root, unit_number, owner, record.temporary_override)
         end
       end
     end
@@ -1161,9 +1208,12 @@ function InserterController.detach_failed_cleanup(instance)
         written_override = temporary and temporary.written_override or nil,
         original_override = record.original_override,
         written_tick = temporary and temporary.written_tick or nil,
+        retry_after_tick = temporary and temporary.retry_after_tick or nil,
         override_resolved = temporary == nil,
       }
-      if temporary then root.temporary_overrides[record.unit_number] = instance.unit_number end
+      if temporary then
+        queue_temporary_override(root, record.unit_number, instance.unit_number, temporary)
+      end
     elseif root.inserter_owners[record.unit_number] == instance.unit_number then
       root.inserter_owners[record.unit_number] = nil
     end
@@ -1223,6 +1273,7 @@ end
 
 function InserterController.restore_tombstone_claims()
   local root = Registry.root()
+  root.temporary_override_retry_tick = nil
   local entries = {}
   for key, tombstone in pairs(root.override_tombstones or {}) do
     if type(tombstone) == "table" and type(tombstone.owner) == "number"
@@ -1249,7 +1300,9 @@ function InserterController.restore_tombstone_claims()
       if not root.chest_owners[tombstone.target_unit_number] then
         root.chest_owners[tombstone.target_unit_number] = tombstone.owner
       end
-      if not tombstone.override_resolved then root.temporary_overrides[unit_number] = tombstone.owner end
+      if not tombstone.override_resolved then
+        queue_temporary_override(root, unit_number, tombstone.owner, tombstone)
+      end
     end
   end
   root.override_tombstones = rebuilt
@@ -1333,7 +1386,12 @@ local function index_saved_temporaries(instance, root)
   for _, record in ipairs(pending) do
     root.inserter_owners[record.unit_number] = instance.unit_number
     root.chest_owners[record.target_unit_number] = instance.unit_number
-    root.temporary_overrides[record.unit_number] = instance.unit_number
+    queue_temporary_override(
+      root,
+      record.unit_number,
+      instance.unit_number,
+      record.temporary_override
+    )
   end
   return true
 end

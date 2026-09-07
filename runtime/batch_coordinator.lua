@@ -137,7 +137,6 @@ function BatchCoordinator.cleanup(instance, clear_targets)
     if clear_targets then
       InserterController.clear_records(instance)
       instance.targets = {}
-      instance.inserters = {}
       instance.ready_counts = nil
     end
     return true
@@ -176,7 +175,6 @@ function BatchCoordinator.cleanup(instance, clear_targets)
   if clear_targets and success then
     InserterController.clear_records(instance)
     instance.targets = {}
-    instance.inserters = {}
     instance.ready_counts = nil
   end
   if not restored then return false, restore_error, restore_detail end
@@ -190,7 +188,6 @@ function BatchCoordinator.detach_failed_cleanup(instance)
   end)
   InserterController.detach_failed_cleanup(instance)
   instance.targets = {}
-  instance.inserters = {}
   instance.ready_counts = nil
 end
 

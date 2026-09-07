@@ -303,19 +303,21 @@ local function validate_capacity(target, inventory, observed_contents)
     local filter = supports_filters and inventory.get_filter(index) or nil
     local filter_name, filter_quality, filter_comparator = filter_identity(filter)
     if filter and (not filter_name or filter_comparator ~= "=") then return false end
+    local filter_key = filter and Util.item_key(filter_name, filter_quality) or nil
     if stack.valid_for_read then
       local quality = Util.quality_name(stack.quality)
       local key = Util.item_key(stack.name, quality)
-      if remaining[key] and remaining[key] > 0 then
+      if (not filter_key or filter_key == key) and remaining[key] and remaining[key] > 0 then
         local free = math.max(0, stack.prototype.stack_size - stack.count)
         remaining[key] = math.max(0, remaining[key] - free)
       end
     else
       if filter then
-        local key = Util.item_key(filter_name, filter_quality)
-        if key and remaining[key] and remaining[key] > 0 then
+        if filter_key and remaining[filter_key] and remaining[filter_key] > 0 then
           local prototype = prototypes.item[filter_name]
-          if prototype then remaining[key] = math.max(0, remaining[key] - prototype.stack_size) end
+          if prototype then
+            remaining[filter_key] = math.max(0, remaining[filter_key] - prototype.stack_size)
+          end
         end
       else
         unfiltered_empty = unfiltered_empty + 1
@@ -364,18 +366,18 @@ local function planning_joint_capacity(inventory, contents, captured)
     local filter = supports_filters and inventory.get_filter(index) or nil
     local filter_name, filter_quality, filter_comparator = filter_identity(filter)
     if filter and (not filter_name or filter_comparator ~= "=") then return nil end
+    local filter_key = filter and Util.item_key(filter_name, filter_quality) or nil
     if stack.valid_for_read then
       local key = Util.item_key(stack.name, Util.quality_name(stack.quality))
-      if captured_keys[key] then
+      if (not filter_key or filter_key == key) and captured_keys[key] then
         descriptor.dedicated_by_key[key] = descriptor.dedicated_by_key[key]
           + math.max(0, stack.prototype.stack_size - stack.count)
       end
     else
       if filter then
-        local key = Util.item_key(filter_name, filter_quality)
-        if captured_keys[key] then
-          descriptor.dedicated_by_key[key] = descriptor.dedicated_by_key[key]
-            + descriptor.stack_size_by_key[key]
+        if captured_keys[filter_key] then
+          descriptor.dedicated_by_key[filter_key] = descriptor.dedicated_by_key[filter_key]
+            + descriptor.stack_size_by_key[filter_key]
         end
       else
         descriptor.unfiltered_slots = descriptor.unfiltered_slots + 1

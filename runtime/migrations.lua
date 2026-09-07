@@ -11,15 +11,16 @@ function Migrations.run()
   if root.schema_version > Constants.SCHEMA_VERSION then
     error("Batch Request Combinator storage was created by a newer mod version")
   end
+  root.active_batches = nil
   local migrate_legacy_modes = stored_schema_version < 2
   local migrate_auto_cleanup = stored_schema_version < 4
   for _, instance in pairs(root.instances) do
+    instance.inserters = nil
     instance.captured = instance.captured or {}
     instance.captured_total = instance.captured_total or 0
     instance.captured_signature = instance.captured_signature or ""
     instance.plan_revision = instance.plan_revision or 0
     instance.targets = instance.targets or {}
-    instance.inserters = instance.inserters or {}
     instance.monitored_inserters = instance.monitored_inserters or {}
     instance.drain_targets = instance.drain_targets or {}
     instance.drain_initial_total = instance.drain_initial_total or 0

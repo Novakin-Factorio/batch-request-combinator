@@ -21,7 +21,6 @@ function Registry.ensure_storage()
   root.temporary_overrides = root.temporary_overrides or {}
   root.override_tombstones = root.override_tombstones or {}
   root.destroyed = root.destroyed or {}
-  root.active_batches = root.active_batches or {}
   root.gui_players = root.gui_players or {}
   root.open_gui_instances = root.open_gui_instances or {}
   root.cleanup_tombstones = root.cleanup_tombstones or {}
@@ -128,7 +127,6 @@ function Registry.add(entity, configuration)
     plan_revision = 0,
     targets = {},
     monitored_inserters = {},
-    inserters = {},
     drain_targets = {},
     drain_initial_total = 0,
     drain_remaining_total = 0,
@@ -164,15 +162,9 @@ function Registry.remove(instance)
   local root = Registry.ensure_storage()
   remove_from_bucket(root, instance.unit_number)
   root.instances[instance.unit_number] = nil
-  root.active_batches[instance.unit_number] = nil
   root.open_gui_instances[instance.unit_number] = nil
   if instance.destroy_registration then root.destroyed[instance.destroy_registration] = nil end
   if instance.helper_destroy_registration then root.destroyed[instance.helper_destroy_registration] = nil end
-end
-
-function Registry.set_active(instance, active)
-  local root = Registry.ensure_storage()
-  root.active_batches[instance.unit_number] = active and true or nil
 end
 
 function Registry.rebuild_buckets()

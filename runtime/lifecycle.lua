@@ -683,7 +683,6 @@ function Lifecycle.reconcile()
   root.chest_owners = {}
   root.inserter_owners = {}
   root.temporary_overrides = {}
-  root.active_batches = {}
   InserterController.restore_tombstone_claims()
   Drain.restore_tombstone_claims()
   local conflicts = {}
@@ -833,9 +832,6 @@ function Lifecycle.reconcile()
       or instance.state == Constants.STATE.SETTLING
       or instance.state == Constants.STATE.READY
       or instance.state == Constants.STATE.COMPLETE
-    if active or instance.state == Constants.STATE.DRAINING then
-      Registry.set_active(instance, true)
-    end
     local claimed_targets = {}
     for _, target in ipairs(instance.targets or {}) do
       target.destroy_registration = nil

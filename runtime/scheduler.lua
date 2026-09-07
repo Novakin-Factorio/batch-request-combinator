@@ -11,7 +11,9 @@ local Scheduler = {}
 
 function Scheduler.on_tick(event, on_invalid, after_process)
   local root = Registry.root()
-  if next(root.temporary_overrides) ~= nil then
+  local override_retry_tick = root.temporary_override_retry_tick
+  if next(root.temporary_overrides) ~= nil
+    and (type(override_retry_tick) ~= "number" or event.tick >= override_retry_tick) then
     local override_ok, override_failures = pcall(InserterController.process_temporary_overrides)
     if override_ok then
       for _, failure in ipairs(override_failures) do
@@ -61,7 +63,6 @@ function Scheduler.on_tick(event, on_invalid, after_process)
           pcall(OutputStatus.fail_safe_off, instance)
           instance.state = Constants.STATE.ERROR
           instance.error_code = Constants.ERROR.INTERNAL
-          Registry.set_active(instance, false)
           log("[Batch Request Combinator] error handler failed for instance "
             .. tostring(instance.unit_number) .. ": " .. tostring(handler_failure))
         end

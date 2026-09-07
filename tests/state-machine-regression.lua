@@ -2,7 +2,7 @@ package.path = "./?.lua;" .. package.path
 
 local Constants = require("runtime.constants")
 local Util = require("runtime.util")
-local root = {poll_interval = 12, active_batches = {}}
+local root = {poll_interval = 12}
 local input, source_empty, cleanup_fails, output_fails, automatic_drains
 local ready, complete, requests_active
 game = {tick = 0}
@@ -15,7 +15,6 @@ end
 package.loaded["runtime.circuit_input"] = {read = snapshot, read_active = snapshot}
 package.loaded["runtime.registry"] = {
   root = function() return root end,
-  set_active = function(instance, active) root.active_batches[instance.unit_number] = active or nil end,
 }
 package.loaded["runtime.output_status"] = {
   ensure = function() return true end,

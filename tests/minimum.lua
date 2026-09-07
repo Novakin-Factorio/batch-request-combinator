@@ -136,10 +136,80 @@ package.loaded["runtime.target_discovery"] = {
   end,
   connected_input_networks = function() return true, setup_red, setup_green end,
 }
-local setup_root = {chest_owners = {}, inserter_owners = {}}
+local setup_root = {
+  chest_owners = {},
+  inserter_owners = {},
+  instances = {},
+  temporary_overrides = {},
+  override_tombstones = {},
+}
 package.loaded["runtime.registry"] = {root = function() return setup_root end}
 package.loaded["runtime.inserter_controller"] = nil
 local InserterController = require("runtime.inserter_controller")
+
+-- Failed temporary stack restoration backs off without delaying its first next-tick attempt.
+local retry_override = 1
+local retry_writes = 0
+local retry_blocked = true
+local retry_inserter = setmetatable({
+  valid = true,
+  type = "inserter",
+  unit_number = 50,
+  localised_name = "retry inserter",
+}, {
+  __index = function(_, key)
+    if key == "inserter_stack_size_override" then return retry_override end
+  end,
+  __newindex = function(target, key, value)
+    if key ~= "inserter_stack_size_override" then
+      rawset(target, key, value)
+      return
+    end
+    retry_writes = retry_writes + 1
+    if retry_blocked then error("simulated stack override restore failure") end
+    retry_override = value
+  end,
+})
+local retry_record = {
+  entity = retry_inserter,
+  unit_number = retry_inserter.unit_number,
+  original_override = 3,
+  temporary_override = {
+    written_override = retry_override,
+    written_tick = 100,
+    held_count = 0,
+  },
+}
+local retry_instance = {unit_number = 49, monitored_inserters = {retry_record}}
+setup_root.instances[retry_instance.unit_number] = retry_instance
+setup_root.temporary_overrides[retry_record.unit_number] = retry_instance.unit_number
+local previous_game = game
+game = {tick = 100}
+InserterController.process_temporary_overrides()
+equal(retry_writes, 0, "temporary override remains for its write tick")
+game.tick = 101
+local retry_failures = InserterController.process_temporary_overrides()
+equal(retry_writes, 1, "temporary override first restoration runs next tick")
+equal(#retry_failures, 1, "temporary override restoration failure reported")
+local deferred_tick = 101 + Constants.DEFERRED_RETRY_INTERVAL_TICKS
+equal(setup_root.temporary_override_retry_tick, deferred_tick,
+  "temporary override restoration failure schedules backoff")
+game.tick = deferred_tick - 1
+InserterController.process_temporary_overrides()
+equal(retry_writes, 1, "temporary override restoration skips backoff window")
+assert(not InserterController.restore(retry_instance),
+  "direct cleanup also respects temporary override backoff")
+equal(retry_writes, 1, "direct cleanup performs no native write during backoff")
+retry_blocked = false
+game.tick = deferred_tick
+InserterController.process_temporary_overrides()
+equal(retry_writes, 2, "temporary override restoration retries at backoff deadline")
+equal(retry_override, retry_record.original_override, "temporary override restored after retry")
+assert(next(setup_root.temporary_overrides) == nil
+    and setup_root.temporary_override_retry_tick == nil,
+  "successful temporary override restoration clears retry schedule")
+setup_root.instances[retry_instance.unit_number] = nil
+game = previous_game
 
 local surface, force = {index = 1}, {index = 1}
 local owner = {valid = true, unit_number = 1, surface = surface, force = force}

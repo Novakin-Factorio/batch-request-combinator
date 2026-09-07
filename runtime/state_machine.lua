@@ -50,7 +50,6 @@ local function transition(instance, new_state, error_code, error_detail)
   instance.state = new_state
   instance.error_code = error_code
   instance.error_detail = error_detail
-  Registry.set_active(instance, is_active_state(new_state))
   local updated = OutputStatus.update(instance, true)
   if updated then instance.reconciliation_output_suppressed = nil end
   return updated
@@ -67,7 +66,6 @@ local function output_failure(instance)
   instance.last_error_code = instance.error_code
   instance.last_error_detail = instance.error_detail
   instance.reconciliation_output_suppressed = nil
-  Registry.set_active(instance, false)
   notify_error(instance)
 end
 
@@ -112,7 +110,6 @@ local function clear_batch(instance)
   instance.targets = {}
   instance.monitored_inserters = {}
   instance.monitored_inserters_by_unit = nil
-  instance.inserters = {}
   instance.drain_input_observed = false
   instance.staged_total = 0
   instance.ready_counts = nil
@@ -645,7 +642,6 @@ function StateMachine.destroy(instance)
     BatchCoordinator.detach_failed_cleanup(instance)
   end
   if not drain_restored then Drain.detach_failed_cleanup(instance) end
-  Registry.set_active(instance, false)
 end
 
 function StateMachine.on_runtime_error(instance, message)
@@ -660,7 +656,6 @@ function StateMachine.on_runtime_error(instance, message)
   instance.error_detail = drain_restored and string.sub(text, 1, 240) or drain_detail
   instance.last_error_code = instance.error_code
   instance.last_error_detail = instance.error_detail
-  Registry.set_active(instance, false)
   BatchCoordinator.cleanup(instance, false)
   if not OutputStatus.update(instance, true) then OutputStatus.fail_safe_off(instance) end
   if not repeated then

@@ -20,7 +20,13 @@ local function stats()
   }
   for _, instance in pairs(root.instances) do
     counts.registered = counts.registered + 1
-    if root.active_batches[instance.unit_number] then counts.active = counts.active + 1 end
+    if instance.state == Constants.STATE.DRAINING
+      or instance.state == Constants.STATE.REQUESTING
+      or instance.state == Constants.STATE.SETTLING
+      or instance.state == Constants.STATE.READY
+      or instance.state == Constants.STATE.COMPLETE then
+      counts.active = counts.active + 1
+    end
     if counts[instance.state] ~= nil then counts[instance.state] = counts[instance.state] + 1 end
   end
   counts.average_processed = root.debug.bucket_ticks > 0

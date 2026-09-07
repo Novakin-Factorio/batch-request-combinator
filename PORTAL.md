@@ -18,6 +18,12 @@ The combinator uses an electric-blue mechanical counter-drum design. The bundled
 
 > **Experimental:** This mod is still being tested and refined. Back up important saves and try it in a safe setup before relying on it in an important factory.
 
+## 🆕 New in 0.1.4
+
+- Filtered modded requester chests no longer count unusable space when a slot's filter does not match the item already in that slot.
+- If an inserter setting cannot be restored immediately, loading stays disabled and the mod retries safely once per second.
+- Successful batch quantities, modes, and READY/COMPLETE behavior are unchanged.
+
 ## ✨ The gameplay loop
 
 1. Your circuit sends the items and quantities for one batch.
@@ -46,7 +52,7 @@ Red wire, green wire, or both are supported. Duplicate red and green paths count
 - Does not require Cybersyn, LTN, Wagon Split, or another train-control mod.
 - Do not enable the older standalone `batch-combinator-requester` beside this mod because both include the same requester entities.
 
-The current gameplay code passed offline regression tests and a manual Factorio 2.1.17 session in English at 100% UI scale, with no issues reported. Automated in-game harnesses were not run for this update. Save/reload during active batches, cargo-size overdelivery to ordinary requester chests, multiplayer, other languages or UI scales, more complex factory layouts, and very large factories remain experimental; try those setups in a safe save first.
+Version 0.1.4 passed automated Factorio 2.1.17 gameplay checks covering 17 runtime scenarios and all six guided lab scenarios. It was also manually checked in English at 100% UI scale with no issues reported. Save/reload during active batches, cargo-size overdelivery to ordinary requester chests, multiplayer, other languages or UI scales, more complex factory layouts, and very large factories remain experimental; try those setups in a safe save first.
 
 ## 📦 Two requester choices
 
@@ -103,7 +109,7 @@ While the combinator is `ARMED` with zero input, **Maintenance** can preview and
 
 The **Batch processing interval** map setting ranges from 1 to 60 ticks and defaults to 12. Lower values make batches react sooner and use more processing time; higher values react more slowly and use less.
 
-Single-tail planning skips mathematically impossible allocation paths sooner, and a blocked cleanup no longer pauses unrelated recovery. These changes preserve normal batch behavior; large-factory UPS gains have not been measured.
+Single mode rejects impossible allocations sooner, blocked cleanup does not delay recovery for other entities, and failed inserter restoration attempts are limited to once per second. Large-factory UPS gains have not been measured.
 
 ## 🛠️ Unlocks and recipes
 
@@ -111,14 +117,6 @@ The **Batch Request Combinator** technology requires **Circuit network** and **L
 
 - **Batch Request Combinator:** 1 Decider combinator, 5 Advanced circuits, and 2 Processing units; 2-second craft.
 - **Batch-Combinator Requester:** 1 Requester chest, 5 Advanced circuits, and 2 Processing units; 2-second craft.
-
-## 🆕 What changed in 0.1.3
-
-- Fixed confirmed inserter setup leaving an unconnected circuit-input color enabled.
-- Preserved cleanup recovery for surviving requester chests when another saved target disappears.
-- Prevented changed request multipliers from silently changing the requested quantity.
-- Kept blocked cleanup from delaying unrelated recovery and reduced wasted Single-tail planning work.
-- Expanded regression tests without changing normal batch quantities, modes, or loading signals.
 
 ## ❓ Help and support
 

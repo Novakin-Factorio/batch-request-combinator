@@ -1,4 +1,15 @@
 ---------------------------------------------------------------------------------------------------
+Version: 0.1.4
+Date: 2026-09-07
+  Bugfixes:
+    - Corrected capacity checks for filterable modded requester inventories so occupied slots count only when their exact item and quality filters match their contents.
+  Optimizations:
+    - Added a 60-tick retry delay after failed temporary inserter stack-size restoration, including error cleanup, while preserving the first next-tick restoration attempt.
+  Changes:
+    - Removed unused active-batch and inserter storage bookkeeping and cleared those obsolete fields during existing-save migration.
+  Info:
+    - Validation passed the offline regression suite, a 17-case automated Factorio 2.1.17 runtime run, the Debug Lab's automated six-case self-test, and an English 100%-scale manual FMTK check. Stateful save/reload, native robot-overdelivery edge cases, multiplayer, additional locale/scale checks, and matched large-factory profiles remain open.
+---------------------------------------------------------------------------------------------------
 Version: 0.1.3
 Date: 2026-09-06
   Bugfixes:
